@@ -1,1 +1,24 @@
+[workspace]
+members = [
+    "source-code/parser",
+    "source-code/compiler",
+    "source-code/cli",
+]
+resolver = "2"
 
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+authors = ["HackerOS Team <hackeros068@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/HackerOS-Linux-System/vira-lang/"
+description = "Vira — a modern language transpiled to Rust, native support for Tauri/GTK/Qt"
+
+[workspace.dependencies]
+# Shared deps across crates
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+logos = "0.14"
+miette = { version = "5.10", features = ["fancy"] }
