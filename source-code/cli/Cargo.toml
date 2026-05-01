@@ -1,1 +1,24 @@
+[package]
+name = "vira"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Vira CLI — build, transpile, run Vira projects"
 
+[[bin]]
+name = "vira"
+path = "src/main.rs"
+
+[dependencies]
+vira-parser  = { path = "../parser"   }
+vira-compiler = { path = "../compiler" }
+thiserror.workspace = true
+anyhow.workspace = true
+clap = { version = "4.5", features = ["derive"] }
+colored = "2.1"
+walkdir = "2.5"
+toml = "0.8"
+serde.workspace = true
+serde_json.workspace = true
+miette.workspace = true
