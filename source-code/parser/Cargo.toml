@@ -1,1 +1,15 @@
+[package]
+name = "vira-parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Vira language lexer + parser → AST"
 
+[dependencies]
+thiserror.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+logos.workspace = true
+miette.workspace = true
+unicode-xid = "0.2"
