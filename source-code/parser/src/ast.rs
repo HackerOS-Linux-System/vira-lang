@@ -10,7 +10,6 @@ pub struct Program {
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
 
-/// `use <tauri>` / `use <gtk:4.0>` / `use <qt:6>`
 #[derive(Debug, Clone)]
 pub struct Import {
     pub kind: ImportKind,
@@ -21,10 +20,8 @@ pub struct Import {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportKind {
-    /// `use <...>` — native Vira API (tauri / gtk / qt)
-    Native,
-    /// `using <...>` — raw Rust crate from ecosystem
-    Crate,
+    Native,   // use <tauri>
+    Crate,    // using <serde>
 }
 
 // ─── Items ────────────────────────────────────────────────────────────────────
@@ -138,7 +135,7 @@ pub enum TraitItem {
     Constant(ConstDef),
 }
 
-// ─── Impl blocks ──────────────────────────────────────────────────────────────
+// ─── Impl ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct ImplBlock {
@@ -174,7 +171,7 @@ pub struct ConstDef {
     pub span: Span,
 }
 
-// ─── Extern blocks ────────────────────────────────────────────────────────────
+// ─── Extern ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct ExternBlock {
@@ -201,20 +198,26 @@ pub struct WherePredicate {
 
 #[derive(Debug, Clone)]
 pub enum TypeExpr {
-    Named(String, Vec<TypeExpr>),        // Foo<Bar, Baz>
-    Ref(Box<TypeExpr>),                  // &T
-    RefMut(Box<TypeExpr>),               // &mut T (internal only)
-    Ptr(Box<TypeExpr>),                  // *T
-    Slice(Box<TypeExpr>),                // [T]
-    Array(Box<TypeExpr>, Box<Expr>),     // [T; N]
-    Tuple(Vec<TypeExpr>),                // (T, U)
-    Function(Vec<TypeExpr>, Box<TypeExpr>), // fn(A, B) -> C
-    Optional(Box<TypeExpr>),             // T?
-    Result(Box<TypeExpr>, Option<Box<TypeExpr>>), // T! or T!E
-    Never,                               // !
-    Infer,                               // _
-    SelfTy,                              // Self
-    Void,                                // void
+    Named(String, Vec<TypeExpr>),
+    Ref(Box<TypeExpr>),
+    RefMut(Box<TypeExpr>),
+    Ptr(Box<TypeExpr>),
+    Slice(Box<TypeExpr>),
+    Array(Box<TypeExpr>, Box<Expr>),
+    Tuple(Vec<TypeExpr>),
+    Function(Vec<TypeExpr>, Box<TypeExpr>),
+    Optional(Box<TypeExpr>),
+    Result(Box<TypeExpr>, Option<Box<TypeExpr>>),
+    Never,
+    Infer,
+    SelfTy,
+    Void,
+}
+
+impl TypeExpr {
+    pub fn is_infer(&self) -> bool {
+        matches!(self, TypeExpr::Infer)
+    }
 }
 
 // ─── Statements ───────────────────────────────────────────────────────────────
@@ -280,62 +283,40 @@ pub struct Expr {
 
 #[derive(Debug, Clone)]
 pub enum ExprKind {
-    // Literals
     Literal(LiteralKind),
-    // Variables
     Ident(String),
+    // Qualified path: Foo::Bar, Foo::Bar::Baz, Foo::Bar(args)
+    Path(Vec<String>),
     SelfExpr,
-    // Operators
     Binary(BinOp, Box<Expr>, Box<Expr>),
     Unary(UnaryOp, Box<Expr>),
-    // Assignment
     Assign(Box<Expr>, Box<Expr>),
     CompoundAssign(BinOp, Box<Expr>, Box<Expr>),
-    // Call
     Call(Box<Expr>, Vec<CallArg>),
-    // Method call
     MethodCall(Box<Expr>, String, Vec<TypeExpr>, Vec<CallArg>),
-    // Field access
     Field(Box<Expr>, String),
-    // Index
     Index(Box<Expr>, Box<Expr>),
-    // Closures
     Closure(Vec<Param>, Option<TypeExpr>, Box<Expr>),
-    // Blocks
     Block(Block),
-    // Control flow
     If(Box<Expr>, Block, Vec<(Expr, Block)>, Option<Block>),
     While(Box<Expr>, Block),
     For(Pattern, Box<Expr>, Block),
     Match(Box<Expr>, Vec<MatchArm>),
-    // Struct literal
+    // Struct literal: Foo { field: val }
     StructLit(String, Vec<(String, Expr)>),
-    // Tuple
     Tuple(Vec<Expr>),
-    // Array
     Array(Vec<Expr>),
-    // Range
     Range(Option<Box<Expr>>, Option<Box<Expr>>, bool),
-    // Casting
     Cast(Box<Expr>, TypeExpr),
-    // Type check
     Is(Box<Expr>, TypeExpr),
-    // Try / propagate
     Try(Box<Expr>),
-    // Await
     Await(Box<Expr>),
-    // Spawn async task
     Spawn(Box<Expr>),
-    // Comptime evaluation
     Comptime(Box<Expr>),
-    // Arena allocation
     ArenaAlloc(Box<Expr>),
-    // Reference
     Ref(Box<Expr>),
     RefMut(Box<Expr>),
-    // Deref
     Deref(Box<Expr>),
-    // Unsafe block
     Unsafe(Block),
 }
 
@@ -382,8 +363,6 @@ pub enum UnaryOp {
     Deref,
     Ref,
 }
-
-// ─── Misc ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Visibility {
