@@ -2,99 +2,89 @@ use logos::Logos;
 
 /// All tokens of the Vira language.
 #[derive(Logos, Debug, Clone, PartialEq)]
-#[logos(skip r"[ \t\r\n]+")] // skip whitespace
+#[logos(skip r"[ \t\r\n]+")]
 pub enum Token {
-    // ─── Comments ──────────────────────────────────────────────────────────────
-    /// Documentation comment: /// ...
-    #[regex(r"///[^\n]*", |lex| lex.slice().to_owned())]
+    // ── Comments ──────────────────────────────────────────────────────────────
+    #[regex(r"///[^\n]*", |lex| lex.slice().to_owned(), priority = 5)]
     DocComment(String),
 
-    /// Multi-line comment: // content \\
-    #[regex(r"//[^\\][^\n]*\\\\", |lex| lex.slice().to_owned())]
-    MultiLineComment(String),
-
-    /// Single-line comment: ;; ...
-    #[regex(r";;[^\n]*", |lex| lex.slice().to_owned())]
+    #[regex(r"//[^\n]*", |lex| lex.slice().to_owned(), priority = 4)]
     LineComment(String),
 
-    // ─── Imports ───────────────────────────────────────────────────────────────
-    /// Native API import: use <tauri>, use <gtk:4.0>, use <qt:6>
-    #[token("use")]
-    Use,
+    #[regex(r";;[^\n]*", |lex| lex.slice().to_owned(), priority = 4)]
+    SingleComment(String),
 
-    /// Ecosystem Rust crate import: using <name:version>
-    #[token("using")]
-    Using,
+    // ── Keywords priority=2 (beat Ident priority=1) ───────────────────────────
+    #[token("use",      priority = 2)] Use,
+    #[token("using",    priority = 2)] Using,
+    #[token("fn",       priority = 2)] Fn,
+    #[token("let",      priority = 2)] Let,
+    #[token("var",      priority = 2)] Var,
+    #[token("const",    priority = 2)] Const,
+    #[token("type",     priority = 2)] Type,
+    #[token("struct",   priority = 2)] Struct,
+    #[token("enum",     priority = 2)] Enum,
+    #[token("trait",    priority = 2)] Trait,
+    #[token("impl",     priority = 2)] Impl,
+    #[token("return",   priority = 2)] Return,
+    #[token("if",       priority = 2)] If,
+    #[token("else",     priority = 2)] Else,
+    #[token("elif",     priority = 2)] Elif,
+    #[token("while",    priority = 2)] While,
+    #[token("for",      priority = 2)] For,
+    #[token("in",       priority = 2)] In,
+    #[token("match",    priority = 2)] Match,
+    #[token("when",     priority = 2)] When,
+    #[token("break",    priority = 2)] Break,
+    #[token("continue", priority = 2)] Continue,
+    #[token("pub",      priority = 2)] Pub,
+    #[token("extern",   priority = 2)] Extern,
+    #[token("async",    priority = 2)] Async,
+    #[token("await",    priority = 2)] Await,
+    #[token("spawn",    priority = 2)] Spawn,
+    #[token("defer",    priority = 2)] Defer,
+    #[token("comptime", priority = 2)] Comptime,
+    #[token("inline",   priority = 2)] Inline,
+    #[token("unsafe",   priority = 2)] Unsafe,
+    #[token("nil",      priority = 2)] Nil,
+    #[token("true",     priority = 2)] True,
+    #[token("false",    priority = 2)] False,
+    #[token("self",     priority = 2)] SelfKw,
+    #[token("Self",     priority = 2)] SelfType,
+    #[token("init",     priority = 2)] Init,
+    #[token("deinit",   priority = 2)] Deinit,
+    #[token("throw",    priority = 2)] Throw,
+    #[token("try",      priority = 2)] Try,
+    #[token("catch",    priority = 2)] Catch,
+    #[token("as",       priority = 2)] As,
+    #[token("is",       priority = 2)] Is,
+    #[token("and",      priority = 2)] And,
+    #[token("or",       priority = 2)] Or,
+    #[token("not",      priority = 2)] Not,
+    #[token("where",    priority = 2)] Where,
+    #[token("arena",    priority = 2)] Arena,
 
-    // ─── Keywords ──────────────────────────────────────────────────────────────
-    #[token("fn")]      Fn,
-    #[token("let")]     Let,
-    #[token("var")]     Var,
-    #[token("const")]   Const,
-    #[token("type")]    Type,
-    #[token("struct")]  Struct,
-    #[token("enum")]    Enum,
-    #[token("trait")]   Trait,
-    #[token("impl")]    Impl,
-    #[token("return")]  Return,
-    #[token("if")]      If,
-    #[token("else")]    Else,
-    #[token("elif")]    Elif,
-    #[token("while")]   While,
-    #[token("for")]     For,
-    #[token("in")]      In,
-    #[token("match")]   Match,
-    #[token("when")]    When,
-    #[token("break")]   Break,
-    #[token("continue")]Continue,
-    #[token("pub")]     Pub,
-    #[token("extern")]  Extern,
-    #[token("async")]   Async,
-    #[token("await")]   Await,
-    #[token("spawn")]   Spawn,
-    #[token("defer")]   Defer,
-    #[token("comptime")]Comptime,
-    #[token("inline")]  Inline,
-    #[token("unsafe")]  Unsafe,
-    #[token("nil")]     Nil,
-    #[token("true")]    True,
-    #[token("false")]   False,
-    #[token("self")]    SelfKw,
-    #[token("Self")]    SelfType,
-    #[token("init")]    Init,
-    #[token("deinit")]  Deinit,
-    #[token("throw")]   Throw,
-    #[token("try")]     Try,
-    #[token("catch")]   Catch,
-    #[token("as")]      As,
-    #[token("is")]      Is,
-    #[token("and")]     And,
-    #[token("or")]      Or,
-    #[token("not")]     Not,
-    #[token("where")]   Where,
-    #[token("arena")]   Arena,
+    // ── Built-in types ────────────────────────────────────────────────────────
+    #[token("i8",    priority = 2)] Ti8,
+    #[token("i16",   priority = 2)] Ti16,
+    #[token("i32",   priority = 2)] Ti32,
+    #[token("i64",   priority = 2)] Ti64,
+    #[token("i128",  priority = 2)] Ti128,
+    #[token("u8",    priority = 2)] Tu8,
+    #[token("u16",   priority = 2)] Tu16,
+    #[token("u32",   priority = 2)] Tu32,
+    #[token("u64",   priority = 2)] Tu64,
+    #[token("u128",  priority = 2)] Tu128,
+    #[token("f32",   priority = 2)] Tf32,
+    #[token("f64",   priority = 2)] Tf64,
+    #[token("bool",  priority = 2)] Tbool,
+    #[token("str",   priority = 2)] Tstr,
+    #[token("char",  priority = 2)] Tchar,
+    #[token("void",  priority = 2)] Tvoid,
+    #[token("usize", priority = 2)] Tusize,
+    #[token("isize", priority = 2)] Tisize,
 
-    // ─── Built-in types ────────────────────────────────────────────────────────
-    #[token("i8")]   Ti8,
-    #[token("i16")]  Ti16,
-    #[token("i32")]  Ti32,
-    #[token("i64")]  Ti64,
-    #[token("i128")] Ti128,
-    #[token("u8")]   Tu8,
-    #[token("u16")]  Tu16,
-    #[token("u32")]  Tu32,
-    #[token("u64")]  Tu64,
-    #[token("u128")] Tu128,
-    #[token("f32")]  Tf32,
-    #[token("f64")]  Tf64,
-    #[token("bool")] Tbool,
-    #[token("str")]  Tstr,
-    #[token("char")] Tchar,
-    #[token("void")] Tvoid,
-    #[token("usize")]Tusize,
-    #[token("isize")]Tisize,
-
-    // ─── Literals ──────────────────────────────────────────────────────────────
+    // ── Literals ──────────────────────────────────────────────────────────────
     #[regex(r"[0-9][0-9_]*(\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?", |lex| lex.slice().to_owned())]
     NumberLit(String),
 
@@ -104,11 +94,29 @@ pub enum Token {
     #[regex(r"'([^'\\]|\\.)'", |lex| lex.slice().to_owned())]
     CharLit(String),
 
-    // ─── Identifiers ───────────────────────────────────────────────────────────
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_owned())]
+    // ── Identifier — priority 1 (keywords above win at priority 2) ────────────
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_owned(), priority = 1)]
     Ident(String),
 
-    // ─── Punctuation ───────────────────────────────────────────────────────────
+    // ── Multi-char operators (higher priority than single-char) ───────────────
+    #[token("...", priority = 3)] Ellipsis,
+    #[token("..",  priority = 2)] DotDot,
+    #[token("::",  priority = 2)] DoubleColon,
+    #[token("->",  priority = 2)] Arrow,
+    #[token("=>",  priority = 2)] FatArrow,
+    #[token("&&",  priority = 2)] AmpAmp,
+    #[token("||",  priority = 2)] PipePipe,
+    #[token("+=",  priority = 2)] AddAssign,
+    #[token("-=",  priority = 2)] SubAssign,
+    #[token("*=",  priority = 2)] MulAssign,
+    #[token("/=",  priority = 2)] DivAssign,
+    #[token("%=",  priority = 2)] ModAssign,
+    #[token("==",  priority = 2)] EqEq,
+    #[token("!=",  priority = 2)] NotEq,
+    #[token("<=",  priority = 2)] LtEq,
+    #[token(">=",  priority = 2)] GtEq,
+
+    // ── Single-char ───────────────────────────────────────────────────────────
     #[token("{")] LBrace,
     #[token("}")] RBrace,
     #[token("(")] LParen,
@@ -119,46 +127,27 @@ pub enum Token {
     #[token(">")] RAngle,
     #[token(",")] Comma,
     #[token(".")] Dot,
-    #[token("..")] DotDot,
-    #[token("...")] Ellipsis,
     #[token(":")] Colon,
-    #[token("::")] DoubleColon,
     #[token(";")] Semicolon,
-    #[token("->")] Arrow,
-    #[token("=>")] FatArrow,
     #[token("?")] Question,
     #[token("!")] Bang,
     #[token("@")] At,
     #[token("#")] Hash,
     #[token("&")] Amp,
-    #[token("&&")] AmpAmp,
     #[token("|")] Pipe,
-    #[token("||")] PipePipe,
     #[token("^")] Caret,
     #[token("~")] Tilde,
-    #[token("_")] Underscore,
-
-    // ─── Operators ─────────────────────────────────────────────────────────────
     #[token("=")] Assign,
-    #[token("+=")] AddAssign,
-    #[token("-=")] SubAssign,
-    #[token("*=")] MulAssign,
-    #[token("/=")] DivAssign,
-    #[token("%=")] ModAssign,
     #[token("+")] Plus,
     #[token("-")] Minus,
     #[token("*")] Star,
     #[token("/")] Slash,
     #[token("%")] Percent,
-    #[token("==")] EqEq,
-    #[token("!=")] NotEq,
-    #[token("<=")] LtEq,
-    #[token(">=")] GtEq,
 }
 
-// ─── Span + Spanned token ──────────────────────────────────────────────────────
+// ─── Span ─────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
@@ -169,6 +158,9 @@ pub struct Span {
 impl Span {
     pub fn new(start: usize, end: usize, line: usize, col: usize) -> Self {
         Span { start, end, line, col }
+    }
+    pub fn dummy() -> Self {
+        Span::default()
     }
 }
 
@@ -184,56 +176,9 @@ impl<T> Spanned<T> {
     }
 }
 
-// ─── Lex helper ───────────────────────────────────────────────────────────────
-
 pub type SpannedToken = Spanned<Token>;
 
-pub fn lex(source: &str) -> Result<Vec<SpannedToken>, Vec<LexError>> {
-    let mut tokens = Vec::new();
-    let mut errors = Vec::new();
-
-    let mut line = 1usize;
-    let mut last_newline = 0usize;
-
-    let mut lex = Token::lexer(source);
-
-    while let Some(result) = lex.next() {
-        let range = lex.span();
-        // track lines
-        for ch in &source[last_newline..range.start].chars().collect::<Vec<_>>() {
-            if *ch == '\n' {
-                line += 1;
-                last_newline = range.start;
-            }
-        }
-        let col = range.start.saturating_sub(last_newline) + 1;
-        let span = Span::new(range.start, range.end, line, col);
-
-        match result {
-            Ok(token) => {
-                // skip comments from token stream but preserve doc comments
-                match &token {
-                    Token::LineComment(_) | Token::MultiLineComment(_) => {
-                        // swallow normal comments
-                    }
-                    _ => tokens.push(Spanned::new(token, span)),
-                }
-            }
-            Err(_) => {
-                errors.push(LexError {
-                    span,
-                    src: source[range.start..range.end].to_owned(),
-                });
-            }
-        }
-    }
-
-    if errors.is_empty() {
-        Ok(tokens)
-    } else {
-        Err(errors)
-    }
-}
+// ─── Lex error ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct LexError {
@@ -243,10 +188,45 @@ pub struct LexError {
 
 impl std::fmt::Display for LexError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "unexpected token '{}' at line {}:{}",
-            self.src, self.span.line, self.span.col
-        )
+        write!(f, "unrecognized character '{}' at {}:{}", self.src, self.span.line, self.span.col)
     }
+}
+
+// ─── Lex ──────────────────────────────────────────────────────────────────────
+
+pub fn lex(source: &str) -> Result<Vec<SpannedToken>, Vec<LexError>> {
+    let mut tokens = Vec::new();
+    let mut errors = Vec::new();
+    let mut line = 1usize;
+    let mut line_start = 0usize;
+
+    let mut lexer = Token::lexer(source);
+
+    while let Some(result) = lexer.next() {
+        let range = lexer.span();
+
+        // track newlines
+        for ch in source[line_start..range.start].chars() {
+            if ch == '\n' {
+                line += 1;
+                line_start = range.start;
+            }
+        }
+
+        let col = range.start.saturating_sub(line_start) + 1;
+        let span = Span::new(range.start, range.end, line, col);
+
+        match result {
+            Ok(tok) => match &tok {
+                Token::LineComment(_) | Token::SingleComment(_) => {}
+                _ => tokens.push(Spanned::new(tok, span)),
+            },
+            Err(_) => errors.push(LexError {
+                span,
+                src: source[range.clone()].to_owned(),
+            }),
+        }
+    }
+
+    if errors.is_empty() { Ok(tokens) } else { Err(errors) }
 }
