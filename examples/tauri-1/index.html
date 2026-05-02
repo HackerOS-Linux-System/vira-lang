@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HackerNotes</title>
+  <style>
+    :root {
+      --bg:       #0d0d0d;
+      --surface:  #161616;
+      --border:   #2a2a2a;
+      --accent:   #00ff88;
+      --accent2:  #00bfff;
+      --text:     #e8e8e8;
+      --muted:    #666;
+      --danger:   #ff4444;
+      --pin:      #ffd700;
+      --radius:   8px;
+      --font:     'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      user-select: none;
+    }
+
+    .logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+    }
+
+    .logo span { color: var(--text); }
+
+    .counter {
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--border);
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    .search-wrap {
+      flex: 1;
+      position: relative;
+    }
+
+    .search-wrap input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      padding: 7px 12px 7px 34px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .search-wrap input:focus { border-color: var(--accent2); }
+
+    .search-wrap::before {
+      content: '⌕';
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    .layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar (note list) ────────────────────────────────── */
+    .sidebar {
+      width: 280px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .btn-new {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn-new:hover { opacity: 0.85; }
+
+    .note-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .note-list::-webkit-scrollbar { width: 4px; }
+    .note-list::-webkit-scrollbar-track { background: transparent; }
+    .note-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .note-item {
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      border: 1px solid transparent;
+      margin-bottom: 4px;
+      transition: background 0.1s, border-color 0.1s;
+      position: relative;
+    }
+
+    .note-item:hover { background: var(--surface); border-color: var(--border); }
+
+    .note-item.active {
+      background: #001a0d;
+      border-color: var(--accent);
+    }
+
+    .note-item.pinned .note-item-title::before {
+      content: '📌 ';
+      font-size: 11px;
+    }
+
+    .note-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .note-item-preview {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .note-item-actions {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: none;
+      gap: 4px;
+    }
+
+    .note-item:hover .note-item-actions { display: flex; }
+
+    .note-item-actions button {
+      background: var(--border);
+      border: none;
+      border-radius: 4px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      padding: 2px 6px;
+      transition: background 0.1s;
+    }
+
+    .note-item-actions button:hover { background: var(--accent); color: #000; }
+    .note-item-actions button.del:hover { background: var(--danger); color: #fff; }
+
+    .empty-list {
+      text-align: center;
+      padding: 40px 16px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 2;
+    }
+
+    /* ── Editor ─────────────────────────────────────────────── */
+    .editor {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .editor-toolbar {
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .editor-toolbar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 18px;
+      font-weight: 700;
+      padding: 4px 0;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .editor-toolbar input:focus { border-color: var(--accent); }
+    .editor-toolbar input::placeholder { color: var(--muted); font-weight: 400; }
+
+    .btn-save {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 16px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn-save:hover { opacity: 0.85; }
+    .btn-save:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .editor-content {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .editor-content textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.7;
+      padding: 20px;
+      resize: none;
+      outline: none;
+    }
+
+    .editor-status {
+      padding: 6px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      gap: 16px;
+    }
+
+    .editor-status .ok   { color: var(--accent); }
+    .editor-status .err  { color: var(--danger); }
+
+    /* ── Welcome screen ─────────────────────────────────────── */
+    .welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--muted);
+    }
+
+    .welcome .big { font-size: 48px; }
+    .welcome h2   { font-size: 18px; color: var(--text); }
+    .welcome p    { font-size: 13px; }
+
+    /* ── New note panel ─────────────────────────────────────── */
+    .new-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      gap: 12px;
+    }
+
+    .new-panel h3 { color: var(--accent); font-size: 14px; margin-bottom: 4px; }
+
+    .new-panel input,
+    .new-panel textarea {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      outline: none;
+      padding: 10px 14px;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+
+    .new-panel input:focus,
+    .new-panel textarea:focus { border-color: var(--accent); }
+
+    .new-panel textarea { height: 200px; resize: vertical; line-height: 1.6; }
+
+    .new-panel-actions { display: flex; gap: 8px; }
+
+    .btn-cancel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      cursor: pointer;
+      font-family: var(--font);
+      font-size: 12px;
+      padding: 6px 14px;
+      transition: border-color 0.15s;
+    }
+
+    .btn-cancel:hover { border-color: var(--accent2); }
+
+    /* ── Toast ──────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      padding: 10px 18px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 999;
+    }
+
+    #toast.show { opacity: 1; }
+    #toast.err  { border-color: var(--danger); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Hacker<span>Notes</span></div>
+  <span class="counter" id="counter">0 notatek</span>
+  <div class="search-wrap">
+    <input type="text" id="search" placeholder="Szukaj notatek..." oninput="onSearch()" />
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span>Notatki</span>
+      <button class="btn-new" onclick="showNew()">+ Nowa</button>
+    </div>
+    <div class="note-list" id="noteList"></div>
+  </aside>
+
+  <!-- Main area -->
+  <main class="editor" id="main">
+    <div class="welcome" id="welcome">
+      <div class="big">📝</div>
+      <h2>HackerNotes</h2>
+      <p>Napisano w Vira → Tauri</p>
+      <p>Kliknij "+ Nowa" aby zacząć</p>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const { invoke } = window.__TAURI__.tauri;
+
+  let notes = [];
+  let activeId = null;
+
+  // ── Init ──────────────────────────────────────────────────────
+  async function init() {
+    await loadNotes();
+  }
+
+  async function loadNotes() {
+    try {
+      notes = await invoke('list_notes');
+      renderList(notes);
+      await refreshCounter();
+    } catch(e) {
+      toast('Błąd ładowania: ' + e, true);
+    }
+  }
+
+  async function refreshCounter() {
+    const count = await invoke('notes_count');
+    document.getElementById('counter').textContent = count + ' ' + pluralNotes(count);
+  }
+
+  function pluralNotes(n) {
+    if (n === 1) return 'notatka';
+    if (n >= 2 && n <= 4) return 'notatki';
+    return 'notatek';
+  }
+
+  // ── Render list ───────────────────────────────────────────────
+  function renderList(list) {
+    const el = document.getElementById('noteList');
+    if (list.length === 0) {
+      el.innerHTML = `<div class="empty-list">Brak notatek<br/>Kliknij "+ Nowa"</div>`;
+      return;
+    }
+    // Pinned first
+    const sorted = [...list].sort((a,b) => b.pinned - a.pinned);
+    el.innerHTML = sorted.map(n => `
+      <div class="note-item ${n.pinned ? 'pinned' : ''} ${n.id === activeId ? 'active' : ''}"
+           onclick="openNote(${n.id})">
+        <div class="note-item-title">${esc(n.title)}</div>
+        <div class="note-item-preview">${esc(n.content.substring(0,60))}</div>
+        <div class="note-item-actions">
+          <button onclick="pin(event,${n.id})">${n.pinned ? '📌' : '📍'}</button>
+          <button class="del" onclick="del(event,${n.id})">✕</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Open existing note ────────────────────────────────────────
+  function openNote(id) {
+    activeId = id;
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+    renderList(notes);
+
+    const main = document.getElementById('main');
+    main.innerHTML = `
+      <div class="editor-toolbar">
+        <input id="editTitle" value="${esc(note.title)}" placeholder="Tytuł notatki" />
+        <button class="btn-save" onclick="saveEdit(${id})">Zapisz</button>
+      </div>
+      <div class="editor-content">
+        <textarea id="editContent" placeholder="Treść notatki...">${esc(note.content)}</textarea>
+      </div>
+      <div class="editor-status">
+        <span>id: ${note.id}</span>
+        <span>${note.pinned ? '📌 Przypięta' : 'Nieprzypięta'}</span>
+        <span id="editStatus"></span>
+      </div>
+    `;
+  }
+
+  async function saveEdit(id) {
+    const title   = document.getElementById('editTitle').value.trim();
+    const content = document.getElementById('editContent').value;
+    if (!title) { toast('Tytuł nie może być pusty', true); return; }
+
+    // Remove old, add new (Vira backend keeps it simple)
+    try {
+      await invoke('remove_note', { id });
+      const res = await invoke('add_note', { title, content });
+      if (res.ok) {
+        await loadNotes();
+        activeId = res.note_id;
+        openNote(res.note_id);
+        toast('Zapisano ✓');
+      } else {
+        toast(res.message, true);
+      }
+    } catch(e) {
+      toast('Błąd zapisu', true);
+    }
+  }
+
+  // ── New note ──────────────────────────────────────────────────
+  function showNew() {
+    activeId = null;
+    renderList(notes);
+    const main = document.getElementById('main');
+    main.innerHTML = `
+      <div class="new-panel">
+        <h3>// nowa notatka</h3>
+        <input id="newTitle" placeholder="Tytuł notatki..." autofocus />
+        <textarea id="newContent" placeholder="Treść notatki..."></textarea>
+        <div class="new-panel-actions">
+          <button class="btn-save" onclick="createNote()">Utwórz notatkę</button>
+          <button class="btn-cancel" onclick="cancelNew()">Anuluj</button>
+        </div>
+      </div>
+    `;
+    setTimeout(() => document.getElementById('newTitle')?.focus(), 50);
+  }
+
+  async function createNote() {
+    const title   = document.getElementById('newTitle').value.trim();
+    const content = document.getElementById('newContent').value;
+    if (!title) { toast('Podaj tytuł', true); return; }
+
+    try {
+      const res = await invoke('add_note', { title, content });
+      if (res.ok) {
+        await loadNotes();
+        activeId = res.note_id;
+        openNote(res.note_id);
+        toast('Notatka utworzona ✓');
+      } else {
+        toast(res.message, true);
+      }
+    } catch(e) {
+      toast('Błąd tworzenia notatki', true);
+    }
+  }
+
+  function cancelNew() {
+    document.getElementById('main').innerHTML = document.getElementById('welcome')?.outerHTML
+      || '<div class="welcome"><div class="big">📝</div><h2>Wybierz notatkę</h2></div>';
+    renderList(notes);
+  }
+
+  // ── Pin / Delete ──────────────────────────────────────────────
+  async function pin(e, id) {
+    e.stopPropagation();
+    try {
+      const res = await invoke('toggle_pin', { id });
+      if (res.ok) { await loadNotes(); toast(res.message); }
+    } catch(_) { toast('Błąd', true); }
+  }
+
+  async function del(e, id) {
+    e.stopPropagation();
+    try {
+      const res = await invoke('remove_note', { id });
+      if (res.ok) {
+        if (activeId === id) {
+          activeId = null;
+          document.getElementById('main').innerHTML =
+            '<div class="welcome"><div class="big">📝</div><h2>Wybierz notatkę</h2></div>';
+        }
+        await loadNotes();
+        toast('Usunięto ✓');
+      }
+    } catch(_) { toast('Błąd usuwania', true); }
+  }
+
+  // ── Search ────────────────────────────────────────────────────
+  let searchTimer = null;
+  async function onSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      const q = document.getElementById('search').value.trim();
+      try {
+        const results = await invoke('search_notes', { query: q });
+        renderList(results);
+      } catch(_) {}
+    }, 200);
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────
+  let toastTimer = null;
+  function toast(msg, isErr = false) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = ''; }, 2500);
+  }
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); showNew(); }
+  });
+
+  init();
+</script>
+</body>
+</html>
