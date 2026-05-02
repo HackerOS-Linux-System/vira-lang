@@ -14,23 +14,23 @@ mod repl;
 /// Primary target: Tauri / GTK / Qt — the HackerOS ecosystem.
 #[derive(Parser)]
 #[command(
-    name = "vira",
-    author = "HackerOS Team",
-    version = env!("CARGO_PKG_VERSION"),
-    about = "Vira language toolchain",
-    long_about = r#"
-┌─────────────────────────────────────────┐
-│  ██╗   ██╗██╗██████╗  █████╗           │
-│  ██║   ██║██║██╔══██╗██╔══██╗          │
-│  ██║   ██║██║██████╔╝███████║          │
-│  ╚██╗ ██╔╝██║██╔══██╗██╔══██║          │
-│   ╚████╔╝ ██║██║  ██║██║  ██║          │
-│    ╚═══╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝          │
-│                                         │
-│  Transpiled to Rust. HackerOS native.   │
-│  Tauri • GTK • Qt                       │
-└─────────────────────────────────────────┘
-"#
+name = "vira",
+author = "HackerOS Team",
+version = env!("CARGO_PKG_VERSION"),
+          about = "Vira language toolchain",
+          long_about = r#"
+          ┌─────────────────────────────────────────┐
+          │  ██╗   ██╗██╗██████╗  █████╗           │
+          │  ██║   ██║██║██╔══██╗██╔══██╗          │
+          │  ██║   ██║██║██████╔╝███████║          │
+          │  ╚██╗ ██╔╝██║██╔══██╗██╔══██║          │
+          │   ╚████╔╝ ██║██║  ██║██║  ██║          │
+          │    ╚═══╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝          │
+          │                                         │
+          │  Transpiled to Rust. HackerOS native.   │
+          │  Tauri • GTK • Qt                       │
+          └─────────────────────────────────────────┘
+          "#
 )]
 struct Cli {
     #[command(subcommand)]
@@ -212,27 +212,27 @@ fn cmd_transpile(
     verbose: bool,
 ) -> Result<()> {
     let name = project_name
-        .map(|n| n.to_owned())
-        .or_else(|| {
-            input.file_stem().map(|s| s.to_string_lossy().to_string())
-        })
-        .unwrap_or_else(|| "vira_app".to_owned());
+    .map(|n| n.to_owned())
+    .or_else(|| {
+        input.file_stem().map(|s| s.to_string_lossy().to_string())
+    })
+    .unwrap_or_else(|| "vira_app".to_owned());
 
     println!(
         "{} {} → {}",
         "Transpiling".cyan().bold(),
-        input.display().to_string().yellow(),
-        out.display().to_string().yellow()
+             input.display().to_string().yellow(),
+             out.display().to_string().yellow()
     );
 
     let source = std::fs::read_to_string(input)
-        .with_context(|| format!("reading {}", input.display()))?;
+    .with_context(|| format!("reading {}", input.display()))?;
 
     let result = vira_compiler::compile(&source, &name, emit_cmake, emit_makefile)
-        .with_context(|| format!("compiling {}", input.display()))?;
+    .with_context(|| format!("compiling {}", input.display()))?;
 
     vira_compiler::write_output(&result, out)
-        .with_context(|| format!("writing output to {}", out.display()))?;
+    .with_context(|| format!("writing output to {}", out.display()))?;
 
     if verbose {
         println!("\n{}", "=== Generated Rust ===".dimmed());
@@ -261,15 +261,15 @@ fn cmd_build(
     // Read project manifest
     let project_name = read_project_name(path).unwrap_or_else(|| {
         path.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "vira_app".to_owned())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "vira_app".to_owned())
     });
 
     println!(
         "{} {} ({})",
-        "Building".green().bold(),
-        project_name.cyan().bold(),
-        if release { "release" } else { "debug" }
+             "Building".green().bold(),
+             project_name.cyan().bold(),
+             if release { "release" } else { "debug" }
     );
 
     // Concatenate all .vira sources
@@ -279,16 +279,16 @@ fn cmd_build(
             println!("  {} {}", "→".dimmed(), f.display());
         }
         combined_source.push_str(&std::fs::read_to_string(f)
-            .with_context(|| format!("reading {}", f.display()))?);
+        .with_context(|| format!("reading {}", f.display()))?);
         combined_source.push('\n');
     }
 
     // Transpile
     let out = out_dir;
     let result = vira_compiler::compile(&combined_source, &project_name, emit_cmake, emit_makefile)
-        .context("Vira compilation failed")?;
+    .context("Vira compilation failed")?;
     vira_compiler::write_output(&result, out)
-        .context("writing transpile output")?;
+    .context("writing transpile output")?;
 
     println!("{} Transpiled {} file(s) → {}", "✓".green().bold(), vira_files.len(), out.display());
 
@@ -299,8 +299,8 @@ fn cmd_build(
     // cargo build
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
-        .arg("--manifest-path")
-        .arg(out.join("Cargo.toml"));
+    .arg("--manifest-path")
+    .arg(out.join("Cargo.toml"));
     if release {
         cmd.arg("--release");
     }
@@ -344,7 +344,7 @@ fn cmd_check(path: &Path, verbose: bool) -> Result<()> {
 
     for file in &vira_files {
         let source = std::fs::read_to_string(file)
-            .with_context(|| format!("reading {}", file.display()))?;
+        .with_context(|| format!("reading {}", file.display()))?;
 
         match vira_parser::parse(&source) {
             Ok(ast) => {
@@ -382,7 +382,7 @@ fn cmd_fmt(path: &Path, check_only: bool, _verbose: bool) -> Result<()> {
 
     for file in &files {
         let source = std::fs::read_to_string(file)
-            .with_context(|| format!("reading {}", file.display()))?;
+        .with_context(|| format!("reading {}", file.display()))?;
 
         let formatted = fmt::format_source(&source);
 
@@ -392,7 +392,7 @@ fn cmd_fmt(path: &Path, check_only: bool, _verbose: bool) -> Result<()> {
             }
         } else {
             std::fs::write(file, &formatted)
-                .with_context(|| format!("writing {}", file.display()))?;
+            .with_context(|| format!("writing {}", file.display()))?;
             println!("  {} {}", "✓".green(), file.display());
         }
     }
@@ -402,14 +402,14 @@ fn cmd_fmt(path: &Path, check_only: bool, _verbose: bool) -> Result<()> {
 
 fn cmd_show(input: &Path) -> Result<()> {
     let source = std::fs::read_to_string(input)
-        .with_context(|| format!("reading {}", input.display()))?;
+    .with_context(|| format!("reading {}", input.display()))?;
 
     let name = input.file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "vira_app".to_owned());
+    .map(|s| s.to_string_lossy().to_string())
+    .unwrap_or_else(|| "vira_app".to_owned());
 
     let result = vira_compiler::compile(&source, &name, false, false)
-        .context("compilation failed")?;
+    .context("compilation failed")?;
 
     println!("{}", "=== Generated Rust ===".cyan().bold());
     println!("{}", result.rust_source);
@@ -423,7 +423,7 @@ fn cmd_version() {
     println!(
         "{} {} — Vira transpiler to Rust",
         "vira".cyan().bold(),
-        env!("CARGO_PKG_VERSION").yellow()
+             env!("CARGO_PKG_VERSION").yellow()
     );
     println!("HackerOS ecosystem: Tauri • GTK • Qt");
     println!("Memory model: Chained Arena");
@@ -442,21 +442,21 @@ fn collect_vira_files(dir: &Path) -> Result<Vec<PathBuf>> {
         .follow_links(true)
         .into_iter()
         .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.extension().map_or(false, |e| e == "vira") {
-            // Skip hidden dirs and .vira-out
-            let skip = path.components().any(|c| {
-                let s = c.as_os_str().to_string_lossy();
-                s.starts_with('.') || s == "target"
-            });
-            if !skip {
-                files.push(path.to_path_buf());
+        {
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "vira") {
+                // Skip hidden dirs and .vira-out
+                let skip = path.components().any(|c| {
+                    let s = c.as_os_str().to_string_lossy();
+                    s.starts_with('.') || s == "target"
+                });
+                if !skip {
+                    files.push(path.to_path_buf());
+                }
             }
         }
-    }
-    files.sort();
-    Ok(files)
+        files.sort();
+        Ok(files)
 }
 
 fn read_project_name(dir: &Path) -> Option<String> {
@@ -468,11 +468,11 @@ fn read_project_name(dir: &Path) -> Option<String> {
 
 fn rustc_version() -> String {
     Command::new("rustc")
-        .arg("--version")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .unwrap_or_else(|| "unknown".to_owned())
-        .trim()
-        .to_owned()
+    .arg("--version")
+    .output()
+    .ok()
+    .and_then(|o| String::from_utf8(o.stdout).ok())
+    .unwrap_or_else(|| "unknown".to_owned())
+    .trim()
+    .to_owned()
 }
