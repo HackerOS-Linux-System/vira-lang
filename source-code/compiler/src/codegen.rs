@@ -129,7 +129,7 @@ impl CodegenContext {
 
         // Detect tauri command: pub fn in tauri context
         let is_tauri_command = f.visibility == Visibility::Public
-            && self.has_tauri_api();
+        && self.has_tauri_api();
         if is_tauri_command {
             self.emitln("#[tauri::command]");
         }
@@ -165,7 +165,7 @@ impl CodegenContext {
                 sig.push_str(&format!(
                     "    {}: {},\n",
                     self.type_str(&pred.ty),
-                    pred.bounds.iter().map(|b| self.type_str(b)).collect::<Vec<_>>().join(" + ")
+                                      pred.bounds.iter().map(|b| self.type_str(b)).collect::<Vec<_>>().join(" + ")
                 ));
             }
         }
@@ -221,8 +221,8 @@ impl CodegenContext {
             self.emitln(&format!(
                 "{}{}: {},",
                 self.vis_str(&field.visibility),
-                field.name,
-                self.type_str(&field.ty)
+                                 field.name,
+                                 self.type_str(&field.ty)
             ));
         }
 
@@ -293,10 +293,10 @@ impl CodegenContext {
             header.push_str(": ");
             header.push_str(
                 &t.supertraits
-                    .iter()
-                    .map(|s| self.type_str(s))
-                    .collect::<Vec<_>>()
-                    .join(" + "),
+                .iter()
+                .map(|s| self.type_str(s))
+                .collect::<Vec<_>>()
+                .join(" + "),
             );
         }
 
@@ -343,7 +343,7 @@ impl CodegenContext {
                 header.push_str(&format!(
                     "    {}: {},\n",
                     self.type_str(&pred.ty),
-                    pred.bounds.iter().map(|b| self.type_str(b)).collect::<Vec<_>>().join(" + ")
+                                         pred.bounds.iter().map(|b| self.type_str(b)).collect::<Vec<_>>().join(" + ")
                 ));
             }
         }
@@ -382,9 +382,9 @@ impl CodegenContext {
         self.emitln(&format!(
             "{}const {}: {} = {};",
             self.vis_str(&c.visibility),
-            c.name,
-            self.type_str(&c.ty),
-            self.expr_str(&c.value)
+                             c.name,
+                             self.type_str(&c.ty),
+                             self.expr_str(&c.value)
         ));
     }
 
@@ -485,6 +485,7 @@ impl CodegenContext {
         match &expr.kind {
             ExprKind::Literal(lit) => self.literal_str(lit),
             ExprKind::Ident(name) => name.clone(),
+            ExprKind::Path(segments) => segments.join("::"),
             ExprKind::SelfExpr => "self".to_owned(),
 
             ExprKind::Binary(op, lhs, rhs) => {
@@ -520,7 +521,7 @@ impl CodegenContext {
             }
             ExprKind::Closure(params, ret, body) => {
                 let ps: Vec<_> = params.iter().map(|p| {
-                    if p.ty == TypeExpr::Infer {
+                    if p.ty.is_infer() {
                         p.name.clone()
                     } else {
                         format!("{}: {}", p.name, self.type_str(&p.ty))
@@ -550,13 +551,13 @@ impl CodegenContext {
                 let mut s = format!("match {} {{\n", self.expr_str(subject));
                 for arm in arms {
                     let guard = arm.guard.as_ref()
-                        .map(|g| format!(" if {}", self.expr_str(g)))
-                        .unwrap_or_default();
+                    .map(|g| format!(" if {}", self.expr_str(g)))
+                    .unwrap_or_default();
                     s.push_str(&format!(
                         "    {}{} => {},\n",
                         self.pattern_str(&arm.pattern),
-                        guard,
-                        self.expr_str(&arm.body)
+                                        guard,
+                                        self.expr_str(&arm.body)
                     ));
                 }
                 s.push('}');
@@ -716,8 +717,8 @@ impl CodegenContext {
             TypeExpr::Optional(inner) => format!("Option<{}>", self.type_str(inner)),
             TypeExpr::Result(ok, err) => {
                 let err_str = err.as_ref()
-                    .map(|e| self.type_str(e))
-                    .unwrap_or_else(|| "Box<dyn std::error::Error>".to_owned());
+                .map(|e| self.type_str(e))
+                .unwrap_or_else(|| "Box<dyn std::error::Error>".to_owned());
                 format!("Result<{}, {}>", self.type_str(ok), err_str)
             }
             TypeExpr::Never => "!".to_owned(),
@@ -765,10 +766,4 @@ impl Default for CodegenContext {
     }
 }
 
-// Partial eq for TypeExpr (needed for closure param check)
-impl PartialEq for TypeExpr {
-    fn eq(&self, other: &Self) -> bool {
-        matches!((self, other), (TypeExpr::Infer, TypeExpr::Infer))
-            || std::mem::discriminant(self) == std::mem::discriminant(other)
-    }
-}
+// TypeExpr::Infer comparison uses is_infer() helper defined in ast (via PartialEq derive there)
