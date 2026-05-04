@@ -11,14 +11,16 @@ name = "vira"
 path = "src/main.rs"
 
 [dependencies]
-vira-parser  = { path = "../parser"   }
+vira-parser   = { path = "../parser"   }
 vira-compiler = { path = "../compiler" }
 thiserror.workspace = true
 anyhow.workspace = true
-clap = { version = "4.5", features = ["derive"] }
-colored = "2.1"
-walkdir = "2.5"
-toml = "0.8"
+clap       = { version = "4.5", features = ["derive"] }
+colored    = "2.1"
+walkdir    = "2.5"
+toml       = "0.8"
 serde.workspace = true
 serde_json.workspace = true
 miette.workspace = true
+indicatif  = { version = "0.17", features = ["rayon"] }
+console    = "0.15"
