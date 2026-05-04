@@ -1,0 +1,36 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../frontend",
+    "distDir": "../frontend"
+  },
+  "package": {
+    "productName": "HackerNotes",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": { "all": false, "open": true }
+    },
+    "bundle": {
+      "active": true,
+      "icon": [],
+      "identifier": "pl.hackeros.notes",
+      "targets": "all"
+    },
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 700,
+        "resizable": true,
+        "title": "HackerNotes",
+        "width": 1100
+      }
+    ]
+  }
+}
