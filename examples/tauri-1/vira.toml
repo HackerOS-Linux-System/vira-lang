@@ -1,0 +1,16 @@
+[package]
+name = "hacker-notes"
+version = "0.1.0"
+description = "HackerNotes — notatki dla HackerOS, napisane w Vira"
+authors = ["HackerOS Team"]
+
+[build]
+entry = "src/main.vira"
+target = "tauri"
+
+[tauri]
+window_title = "HackerNotes"
+window_width = 1100
+window_height = 700
+resizable = true
+frontend = "frontend/index.html"
