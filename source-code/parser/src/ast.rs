@@ -318,6 +318,9 @@ pub enum ExprKind {
     RefMut(Box<Expr>),
     Deref(Box<Expr>),
     Unsafe(Block),
+    // Macro invocation: foo!(...) or foo![...] or foo!{...}
+    // path = ["tauri", "generate_handler"], bang_bracket = '[' or '(' or '{'
+    MacroCall(Vec<String>, char, Vec<Expr>),
 }
 
 #[derive(Debug, Clone)]
