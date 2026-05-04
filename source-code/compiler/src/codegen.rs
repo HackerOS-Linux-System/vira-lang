@@ -486,6 +486,16 @@ impl CodegenContext {
             ExprKind::Literal(lit) => self.literal_str(lit),
             ExprKind::Ident(name) => name.clone(),
             ExprKind::Path(segments) => segments.join("::"),
+            ExprKind::MacroCall(path, bracket, args) => {
+                let path_str = path.join("::");
+                let (open, close) = match bracket {
+                    '[' => ('[', ']'),
+                    '{' => ('{', '}'),
+                    _   => ('(', ')'),
+                };
+                let args_str: Vec<String> = args.iter().map(|a| self.expr_str(a)).collect();
+                format!("{}!{}{}{}", path_str, open, args_str.join(", "), close)
+            }
             ExprKind::SelfExpr => "self".to_owned(),
 
             ExprKind::Binary(op, lhs, rhs) => {
