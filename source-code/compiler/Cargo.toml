@@ -13,3 +13,4 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 miette.workspace = true
+walkdir = "2.5"
