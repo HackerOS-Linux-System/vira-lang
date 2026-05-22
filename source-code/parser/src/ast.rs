@@ -20,8 +20,49 @@ pub struct Import {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportKind {
-    Native,   // use <tauri>
-    Crate,    // using <serde>
+    /// use <tauri> / use <gtk> / use <qt> / use <android> / use <slint>
+    Native,
+    /// using <name> from <ecosystem>
+    /// ecosystem: crates/rust | typescript/npm/javascript
+    Ecosystem { ecosystem: String },
+    /// usage <name>  — Vira ecosystem (vira.io), placeholder
+    ViraRegistry,
+}
+
+/// Ecosystem target for `using` imports
+#[derive(Debug, Clone, PartialEq)]
+pub enum Ecosystem {
+    /// Rust crates.io
+    Crates,
+    /// npm / TypeScript / JavaScript
+    Npm,
+    /// Vira registry (future: vira.io)
+    Vira,
+}
+
+impl Ecosystem {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "crates" | "rust" => Ecosystem::Crates,
+            "npm" | "typescript" | "javascript" | "ts" | "js" => Ecosystem::Npm,
+            _ => Ecosystem::Crates,
+        }
+    }
+
+    pub fn to_rust_dep(&self, name: &str, version: Option<&str>) -> String {
+        match self {
+            Ecosystem::Crates => {
+                let ver = version.unwrap_or("*");
+                format!("{} = \"{}\"", name, ver)
+            }
+            Ecosystem::Npm => {
+                format!("// npm: {} {}", name, version.unwrap_or("latest"))
+            }
+            Ecosystem::Vira => {
+                format!("// vira.io: {} {}", name, version.unwrap_or("latest"))
+            }
+        }
+    }
 }
 
 // ─── Items ────────────────────────────────────────────────────────────────────
