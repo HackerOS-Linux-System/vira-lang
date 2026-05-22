@@ -1,0 +1,18 @@
+[app]
+name        = "hacker-notes"
+version     = "0.1.0"
+identifier  = "pl.hackeros.hacker-notes"
+description = "HackerNotes for HackerOS"
+
+[window]
+title     = "HackerNotes"
+width     = 1100
+height    = 700
+resizable = true
+
+[bundle]
+icons   = false
+targets = "all"
+
+[build]
+ui_dir = "lib"
