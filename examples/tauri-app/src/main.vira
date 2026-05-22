@@ -1,0 +1,246 @@
+use <tauri>
+
+;; ─── Model danych ─────────────────────────────────────────────────────────────
+
+/// Pojedyncza notatka
+pub struct Note {
+    id: u64,
+    title: str,
+    content: str,
+    tags: [str],
+    created_at: u64,
+    updated_at: u64,
+    pinned: bool,
+    color: str,
+}
+
+/// Stan całej aplikacji (trzymany w pamięci + serializowany do JSON)
+pub struct AppState {
+    notes: [Note],
+    next_id: u64,
+    search_query: str,
+    selected_id: u64?,
+}
+
+impl AppState {
+    pub fn new() -> AppState {
+        AppState {
+            notes: [],
+            next_id: 1,
+            search_query: "",
+            selected_id: nil,
+        }
+    }
+
+    pub fn find_note(self, id: u64) -> Note? {
+        for note in self.notes {
+            if note.id == id {
+                return note
+            }
+        }
+        nil
+    }
+
+    pub fn filtered_notes(self) -> [Note] {
+        if self.search_query == "" {
+            return self.notes
+        }
+        var result: [Note] = []
+        for note in self.notes {
+            let q = self.search_query
+            if note.title.contains(q) or note.content.contains(q) {
+                result.push(note)
+            }
+        }
+        result
+    }
+}
+
+;; ─── Enum wyników ─────────────────────────────────────────────────────────────
+
+pub enum NoteError {
+    NotFound(u64),
+    InvalidTitle,
+    StorageError(str),
+    ParseError(str),
+}
+
+;; ─── Tauri commands ───────────────────────────────────────────────────────────
+
+/// Pobierz wszystkie notatki (z filtrem)
+pub async fn get_notes(
+    query: str,
+    state: AppState,
+) -> [Note] {
+    if query == "" {
+        state.notes
+    } else {
+        state.filtered_notes()
+    }
+}
+
+/// Utwórz nową notatkę
+pub async fn create_note(
+    title: str,
+    content: str,
+    tags: [str],
+    color: str,
+    state: AppState,
+) -> Note! {
+    if title == "" {
+        throw NoteError::InvalidTitle
+    }
+
+    let now = timestamp()
+    let note = Note {
+        id: state.next_id,
+        title: title,
+        content: content,
+        tags: tags,
+        created_at: now,
+        updated_at: now,
+        pinned: false,
+        color: color,
+    }
+
+    state.notes.push(note)
+    state.next_id += 1
+    save_state(state)?
+
+    note
+}
+
+/// Zaktualizuj istniejącą notatkę
+pub async fn update_note(
+    id: u64,
+    title: str,
+    content: str,
+    tags: [str],
+    pinned: bool,
+    state: AppState,
+) -> Note! {
+    var found: bool = false
+
+    for note in state.notes {
+        if note.id == id {
+            note.title = title
+            note.content = content
+            note.tags = tags
+            note.pinned = pinned
+            note.updated_at = timestamp()
+            found = true
+        }
+    }
+
+    if not found {
+        throw NoteError::NotFound(id)
+    }
+
+    save_state(state)?
+    state.find_note(id)!
+}
+
+/// Usuń notatkę
+pub async fn delete_note(id: u64, state: AppState) -> bool! {
+    let before = state.notes.len()
+    state.notes.retain(|n| n.id != id)
+    let deleted = state.notes.len() < before
+
+    if not deleted {
+        throw NoteError::NotFound(id)
+    }
+
+    save_state(state)?
+    true
+}
+
+/// Przypnij / odepnij notatkę
+pub async fn toggle_pin(id: u64, state: AppState) -> bool! {
+    for note in state.notes {
+        if note.id == id {
+            note.pinned = not note.pinned
+            save_state(state)?
+            return note.pinned
+        }
+    }
+    throw NoteError::NotFound(id)
+}
+
+/// Eksportuj notatkę do Markdown
+pub async fn export_note(id: u64, state: AppState) -> str! {
+    let note = state.find_note(id)
+    match note {
+        nil  => throw NoteError::NotFound(id),
+        note => {
+            let tags_line = note.tags.join(", ")
+            "# " + note.title + "\n\n" +
+            "> Tags: " + tags_line + "\n\n" +
+            note.content
+        }
+    }
+}
+
+/// Statystyki aplikacji
+pub struct AppStats {
+    total_notes: u64,
+    pinned_count: u64,
+    total_words: u64,
+    tags: [str],
+}
+
+pub async fn get_stats(state: AppState) -> AppStats {
+    var total_words: u64 = 0
+    var pinned: u64 = 0
+    var all_tags: [str] = []
+
+    for note in state.notes {
+        total_words += note.content.split(" ").len() as u64
+        if note.pinned {
+            pinned += 1
+        }
+        for tag in note.tags {
+            if not all_tags.contains(tag) {
+                all_tags.push(tag)
+            }
+        }
+    }
+
+    AppStats {
+        total_notes: state.notes.len() as u64,
+        pinned_count: pinned,
+        total_words: total_words,
+        tags: all_tags,
+    }
+}
+
+;; ─── Persystencja stanu ───────────────────────────────────────────────────────
+
+fn save_state(state: AppState) -> void! {
+    ;; TODO: implementacja zapisu do pliku przez tauri::fs
+    ;; w pełnej wersji użylibyśmy tauri::path::app_data_dir()
+}
+
+fn timestamp() -> u64 {
+    ;; zwraca unix timestamp
+    0
+}
+
+;; ─── Entry point ──────────────────────────────────────────────────────────────
+
+/// Punkt startowy aplikacji Tauri
+pub fn main() -> void! {
+    let state = AppState::new()
+
+    tauri::Builder::default()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            get_notes,
+            create_note,
+            update_note,
+            delete_note,
+            toggle_pin,
+            export_note,
+            get_stats,
+        ])
+        .run(tauri::generate_context!())?
+}
