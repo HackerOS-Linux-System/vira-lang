@@ -154,6 +154,7 @@ pub fn run_cargo_with_progress(
 
     let mut child = cmd.spawn()
     .context("cargo not found — install Rust from https://rustup.rs")?;
+    let child_stderr = child.stderr.take();
 
     let stdout = child.stdout.take().unwrap();
     let reader = BufReader::new(stdout);
@@ -206,17 +207,7 @@ pub fn run_cargo_with_progress(
         }
     }
 
-    let status = child.wait().context("waiting for cargo")?;
-    if !status.success() {
-        // Re-run without JSON to show actual errors to user
-        eprintln!();
-        let _ = Command::new("cargo")
-        .args(args)
-        .arg("--manifest-path").arg(manifest_path)
-        .status();
-        anyhow::bail!("cargo build failed");
-    }
-
+    // Capture stderr for friendly dep error translation    let mut cargo_stderr = String::new();    if let Some(mut se) = child_stderr {        use std::io::Read;        se.read_to_string(&mut cargo_stderr).ok();    }    let status = child.wait().context("waiting for cargo")?;    if !status.success() {        // Show Vira-style dependency errors first        let friendly = vira_compiler::dep_check::translate_cargo_error(&cargo_stderr);        if !friendly.is_empty() {            eprint!("{friendly}");        }        // Re-run to show raw errors        eprintln!();        let _ = Command::new("cargo")            .args(args)            .arg("--manifest-path").arg(manifest_path)            .status();        anyhow::bail!("cargo build failed");    }
     Ok(())
 }
 
@@ -235,7 +226,7 @@ pub fn run_tauri_with_progress(
     prog.set_status("starting tauri...");
     prog.set_progress(5);
 
-    let mut args = vec!["tauri", "build"];
+    let args = vec!["tauri", "build"];
     if !release { } // tauri dev not captured this way
 
     let mut cmd = Command::new("cargo");
