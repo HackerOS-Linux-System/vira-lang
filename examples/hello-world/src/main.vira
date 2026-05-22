@@ -1,0 +1,136 @@
+;; examples/hello-world/src/main.vira
+;; Hello World w Vira — najprostszy możliwy program
+;; Pokazuje podstawową składnię języka
+
+/// Główna struktura wiadomości
+pub struct Message {
+    text: str,
+    author: str,
+    times: u32,
+}
+
+impl Message {
+    /// Utwórz nową wiadomość
+    pub fn new(text: str, author: str) -> Message {
+        Message { text: text, author: author, times: 1 }
+    }
+
+    /// Wyświetl wiadomość n razy
+    pub fn repeat(self, n: u32) -> Message {
+        Message { text: self.text, author: self.author, times: n }
+    }
+
+    /// Sformatuj do wyświetlenia
+    pub fn format(self) -> str {
+        "[" + self.author + "] " + self.text
+    }
+}
+
+/// Wynik programu
+pub enum ExitCode {
+    Ok,
+    Error(str),
+}
+
+/// Oblicz silnię (przykład rekurencji)
+pub fn factorial(n: u64) -> u64 {
+    if n <= 1 {
+        1
+    } else {
+        n * factorial(n - 1)
+    }
+}
+
+/// Sprawdź czy liczba jest pierwsza
+pub fn is_prime(n: u64) -> bool {
+    if n < 2 {
+        return false
+    }
+    var i: u64 = 2
+    while i * i <= n {
+        if n % i == 0 {
+            return false
+        }
+        i += 1
+    }
+    true
+}
+
+/// Generuj liczby Fibonacciego
+pub fn fibonacci(n: u32) -> [u64] {
+    if n == 0 {
+        return []
+    }
+    if n == 1 {
+        return [0]
+    }
+    var seq: [u64] = [0, 1]
+    var i: u32 = 2
+    while i < n {
+        let last = seq[seq.len() - 1]
+        let prev = seq[seq.len() - 2]
+        seq.push(last + prev)
+        i += 1
+    }
+    seq
+}
+
+/// Główna funkcja programu
+pub fn main() -> void! {
+    ;; Tworzenie i wyświetlanie wiadomości
+    let msg = Message::new("Witaj z Vira Lang!", "HackerOS")
+    println(msg.format())
+    println("---")
+
+    ;; Pętla z licznikiem
+    var i: u32 = 1
+    while i <= msg.times {
+        println("Iteracja " + i.to_string() + ": " + msg.text)
+        i += 1
+    }
+    println("---")
+
+    ;; Silnia
+    let n: u64 = 10
+    println("Silnia " + n.to_string() + " = " + factorial(n).to_string())
+
+    ;; Liczby pierwsze od 2 do 30
+    var primes: [str] = []
+    var j: u64 = 2
+    while j <= 30 {
+        if is_prime(j) {
+            primes.push(j.to_string())
+        }
+        j += 1
+    }
+    println("Liczby pierwsze 2-30: " + primes.join(", "))
+
+    ;; Fibonacci
+    let fib = fibonacci(10)
+    println("Fibonacci(10): " + fib.map(|n| n.to_string()).join(", "))
+
+    ;; Match expression z literałami (Vira obsługuje liczby jako wzorce)
+    let fac5 = factorial(5)
+    let result = match fac5 {
+        0   => "zero",
+        120 => "sto dwadziescia",
+        _   => "inne",
+    }
+    println("5! to: " + result)
+
+    ;; Closure
+    let double = |x: i32| -> i32 { x * 2 }
+    println("Podwojone 7: " + double(7).to_string())
+
+    ;; Wynik programu
+    let exit = ExitCode::Ok
+    match exit {
+        ExitCode::Ok       => println("Program zakończony pomyślnie!"),
+        ExitCode::Error(e) => println("Błąd: " + e),
+    }
+}
+
+;; Extern functions provided by Vira runtime
+extern {
+    fn println(s: str) -> void
+}
