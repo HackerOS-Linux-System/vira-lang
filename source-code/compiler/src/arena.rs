@@ -9,6 +9,7 @@ const DEFAULT_CHUNK_SIZE: usize = 64 * 1024;
 struct Chunk {
     data: NonNull<u8>,
     capacity: usize,
+    #[allow(dead_code)]
     next: Option<Box<Chunk>>,
 }
 
@@ -34,6 +35,7 @@ impl Drop for Chunk {
 pub struct Arena {
     head: Box<Chunk>,
     offset: Cell<usize>,
+    #[allow(dead_code)]
     chunk_size: usize,
     /// Total bytes allocated across all chunks
     pub allocated: Cell<usize>,
@@ -70,8 +72,8 @@ impl Arena {
             // Here we panic to signal that the chunk size should be increased.
             panic!(
                 "Vira arena chunk full ({} bytes used / {} capacity). \
-                 Increase chunk size or restructure allocation.",
-                aligned_offset, self.head.capacity
+Increase chunk size or restructure allocation.",
+aligned_offset, self.head.capacity
             );
         }
     }
