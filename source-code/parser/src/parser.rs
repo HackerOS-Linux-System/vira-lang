@@ -6,11 +6,13 @@ pub struct Parser {
     tokens: Vec<SpannedToken>,
     pos: usize,
     pending_docs: Vec<String>,
+    /// Line of the most recently consumed (advanced past) token
+    last_token_line: usize,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<SpannedToken>) -> Self {
-        Parser { tokens, pos: 0, pending_docs: Vec::new() }
+        Parser { tokens, pos: 0, pending_docs: Vec::new(), last_token_line: 0 }
     }
 
     // ── Core helpers ──────────────────────────────────────────────────────────
@@ -52,6 +54,7 @@ impl Parser {
     }
 
     // Line of the token at pos (raw, no skip)
+    #[allow(dead_code)]
     fn line_at(&self, pos: usize) -> usize {
         self.tokens.get(pos).map(|t| t.span.line).unwrap_or(0)
     }
@@ -114,6 +117,7 @@ impl Parser {
                 self.pending_docs.push(s.trim_start_matches('/').trim().to_owned());
                 continue;
             }
+            self.last_token_line = tok.span.line;
             return Some(tok);
         }
     }
@@ -132,6 +136,17 @@ impl Parser {
         let sp = self.span();
         match self.peek().cloned() {
             Some(Token::Ident(name)) => { self.advance(); Ok((name, sp)) }
+            // Allow contextual keywords as identifiers in field/var name position
+            // These are keywords that can also be used as identifiers: usage, from, arena, defer etc.
+            Some(Token::Usage)   => { self.advance(); Ok(("usage".into(),   sp)) }
+            Some(Token::From)    => { self.advance(); Ok(("from".into(),    sp)) }
+            Some(Token::Arena)   => { self.advance(); Ok(("arena".into(),   sp)) }
+            Some(Token::Defer)   => { self.advance(); Ok(("defer".into(),   sp)) }
+            Some(Token::Spawn)   => { self.advance(); Ok(("spawn".into(),   sp)) }
+            Some(Token::Inline)  => { self.advance(); Ok(("inline".into(),  sp)) }
+            Some(Token::When)    => { self.advance(); Ok(("when".into(),    sp)) }
+            Some(Token::Init)    => { self.advance(); Ok(("init".into(),    sp)) }
+            Some(Token::Deinit)  => { self.advance(); Ok(("deinit".into(),  sp)) }
             Some(ref tok) => Err(ParseError::unexpected("identifier".into(), token_name(tok), sp)),
             None => Err(ParseError::eof(sp)),
         }
@@ -154,7 +169,7 @@ impl Parser {
         let mut items = Vec::new();
         while !self.at_end() {
             match self.peek() {
-                Some(Token::Use) | Some(Token::Using) => imports.push(self.parse_import()?),
+                Some(Token::Use) | Some(Token::Using) | Some(Token::Usage) => imports.push(self.parse_import()?),
                 _ => items.push(self.parse_item()?),
             }
         }
@@ -165,19 +180,62 @@ impl Parser {
 
     fn parse_import(&mut self) -> ParseResult<Import> {
         let sp = self.span();
-        let kind = if self.eat(&Token::Use) { ImportKind::Native }
-        else { self.expect(&Token::Using)?; ImportKind::Crate };
+
+        // ── usage <name>  — Vira registry (vira.io placeholder) ──────────────
+        if self.eat(&Token::Usage) {
+            self.expect(&Token::LAngle)?;
+            let (name, _) = self.expect_ident()?;
+            let version = self.parse_optional_version();
+            self.expect(&Token::RAngle)?;
+            return Ok(Import { kind: ImportKind::ViraRegistry, name, version, span: sp });
+        }
+
+        // ── using <name> from <ecosystem>  — ecosystem import ─────────────────
+        // Also handles: using <name:version> from <crates>
+        if self.eat(&Token::Using) {
+            self.expect(&Token::LAngle)?;
+            let (name, _) = self.expect_ident()?;
+            let version = self.parse_optional_version();
+            self.expect(&Token::RAngle)?;
+
+            // optional `from <ecosystem>`
+            let ecosystem = if self.eat(&Token::From) {
+                self.expect(&Token::LAngle)?;
+                let (eco, _) = self.expect_ident()?;
+                self.expect(&Token::RAngle)?;
+                eco
+            } else {
+                "crates".to_owned() // default: Rust crates
+            };
+
+            return Ok(Import {
+                kind: ImportKind::Ecosystem { ecosystem },
+                name, version, span: sp,
+            });
+        }
+
+        // ── use <name>  — native Vira API ─────────────────────────────────────
+        self.expect(&Token::Use)?;
         self.expect(&Token::LAngle)?;
         let (name, _) = self.expect_ident()?;
-        let version = if self.eat(&Token::Colon) {
-            match self.peek().cloned() {
-                Some(Token::Ident(v)) => { self.advance(); Some(v) }
-                Some(Token::NumberLit(v)) => { self.advance(); Some(v) }
-                _ => None,
-            }
-        } else { None };
+
+        // Version handling: use <gtk:4> use <tauri:v1> use <qt:5>
+        let version = self.parse_optional_version();
+
         self.expect(&Token::RAngle)?;
-        Ok(Import { kind, name, version, span: sp })
+        Ok(Import { kind: ImportKind::Native, name, version, span: sp })
+    }
+
+    /// Parse optional :version after ident inside angle brackets
+    /// Handles: :4  :v1  :v2  :3  :4.0
+    fn parse_optional_version(&mut self) -> Option<String> {
+        if !self.eat(&Token::Colon) { return None; }
+        // version can be: ident (v1, v2, latest) or number (4, 5, 6)
+        match self.peek().cloned() {
+            Some(Token::Ident(v))     => { self.advance(); Some(v) }
+            Some(Token::NumberLit(v)) => { self.advance(); Some(v) }
+            _ => None,
+        }
     }
 
     // ── Items ─────────────────────────────────────────────────────────────────
@@ -517,28 +575,41 @@ impl Parser {
 
     fn parse_type_name(&mut self) -> ParseResult<String> {
         let sp = self.span();
-        match self.peek().cloned() {
-            Some(Token::Ti8)      => { self.advance(); Ok("i8".into()) }
-            Some(Token::Ti16)     => { self.advance(); Ok("i16".into()) }
-            Some(Token::Ti32)     => { self.advance(); Ok("i32".into()) }
-            Some(Token::Ti64)     => { self.advance(); Ok("i64".into()) }
-            Some(Token::Ti128)    => { self.advance(); Ok("i128".into()) }
-            Some(Token::Tu8)      => { self.advance(); Ok("u8".into()) }
-            Some(Token::Tu16)     => { self.advance(); Ok("u16".into()) }
-            Some(Token::Tu32)     => { self.advance(); Ok("u32".into()) }
-            Some(Token::Tu64)     => { self.advance(); Ok("u64".into()) }
-            Some(Token::Tu128)    => { self.advance(); Ok("u128".into()) }
-            Some(Token::Tf32)     => { self.advance(); Ok("f32".into()) }
-            Some(Token::Tf64)     => { self.advance(); Ok("f64".into()) }
-            Some(Token::Tbool)    => { self.advance(); Ok("bool".into()) }
-            Some(Token::Tstr)     => { self.advance(); Ok("String".into()) }
-            Some(Token::Tchar)    => { self.advance(); Ok("char".into()) }
-            Some(Token::Tusize)   => { self.advance(); Ok("usize".into()) }
-            Some(Token::Tisize)   => { self.advance(); Ok("isize".into()) }
-            Some(Token::Ident(s)) => { let o = s.clone(); self.advance(); Ok(o) }
-            Some(ref tok) => Err(ParseError::unexpected("type name".into(), token_name(tok), sp)),
-            None => Err(ParseError::eof(sp)),
+        let base = match self.peek().cloned() {
+            Some(Token::Ti8)      => { self.advance(); "i8".into() }
+            Some(Token::Ti16)     => { self.advance(); "i16".into() }
+            Some(Token::Ti32)     => { self.advance(); "i32".into() }
+            Some(Token::Ti64)     => { self.advance(); "i64".into() }
+            Some(Token::Ti128)    => { self.advance(); "i128".into() }
+            Some(Token::Tu8)      => { self.advance(); "u8".into() }
+            Some(Token::Tu16)     => { self.advance(); "u16".into() }
+            Some(Token::Tu32)     => { self.advance(); "u32".into() }
+            Some(Token::Tu64)     => { self.advance(); "u64".into() }
+            Some(Token::Tu128)    => { self.advance(); "u128".into() }
+            Some(Token::Tf32)     => { self.advance(); "f32".into() }
+            Some(Token::Tf64)     => { self.advance(); "f64".into() }
+            Some(Token::Tbool)    => { self.advance(); "bool".into() }
+            Some(Token::Tstr)     => { self.advance(); "String".into() }
+            Some(Token::Tchar)    => { self.advance(); "char".into() }
+            Some(Token::Tusize)   => { self.advance(); "usize".into() }
+            Some(Token::Tisize)   => { self.advance(); "isize".into() }
+            Some(Token::Ident(s)) => { let o = s.clone(); self.advance(); o }
+            Some(ref tok) => return Err(ParseError::unexpected("type name".into(), token_name(tok), sp)),
+            None => return Err(ParseError::eof(sp)),
+        };
+        // Handle qualified type paths: gtk::HeaderBar, tauri::AppHandle etc.
+        let mut full = base;
+        while self.peek() == Some(&Token::DoubleColon) {
+            // Only consume :: if next is an ident (not a generic < or other)
+            if matches!(self.tokens.get(self.pos + 1).map(|t| &t.node), Some(Token::Ident(_))) {
+                self.advance(); // ::
+                let (seg, _) = self.expect_ident()?;
+                full = format!("{full}::{seg}");
+            } else {
+                break;
+            }
         }
+        Ok(full)
     }
 
     // ── Block ─────────────────────────────────────────────────────────────────
@@ -882,7 +953,9 @@ impl Parser {
                     let args = self.parse_call_args()?;
                     base = Expr { kind: ExprKind::Call(Box::new(base), args), span: sp };
                 }
-                Some(Token::Question) if same_line => {
+                // `?` (try/propagate) is NEVER ambiguous — allow on any line
+                // because `.foo()?.bar()` chains can span many lines
+                Some(Token::Question) => {
                     self.advance();
                     base = Expr { kind: ExprKind::Try(Box::new(base)), span: sp };
                 }
@@ -919,7 +992,7 @@ impl Parser {
     // Returns (bracket_char, args_as_exprs)
     fn parse_macro_args(&mut self) -> ParseResult<(char, Vec<Expr>)> {
         let sp = self.span();
-        let (open, close, bracket) = match self.peek().cloned() {
+        let (_open, close, bracket) = match self.peek().cloned() {
             Some(Token::LBracket) => (Token::LBracket, Token::RBracket, '['),
             Some(Token::LParen)   => (Token::LParen,   Token::RParen,   '('),
             Some(Token::LBrace)   => (Token::LBrace,   Token::RBrace,   '{'),
@@ -957,8 +1030,56 @@ impl Parser {
     // ── Patterns ──────────────────────────────────────────────────────────────
 
     fn parse_pattern(&mut self) -> ParseResult<Pattern> {
+        let first = self.parse_single_pattern()?;
+        if self.peek() == Some(&Token::Pipe) {
+            let mut pats = vec![first];
+            while self.eat(&Token::Pipe) {
+                pats.push(self.parse_single_pattern()?);
+            }
+            return Ok(Pattern::Or(pats));
+        }
+        Ok(first)
+    }
+
+    fn parse_single_pattern(&mut self) -> ParseResult<Pattern> {
         match self.peek().cloned() {
             Some(Token::Ident(name)) if name == "_" => { self.advance(); Ok(Pattern::Wildcard) }
+            // Nil / boolean literal patterns
+            Some(Token::Nil)   => { self.advance(); Ok(Pattern::Literal(LiteralKind::Nil)) }
+            Some(Token::True)  => { self.advance(); Ok(Pattern::Literal(LiteralKind::Bool(true))) }
+            Some(Token::False) => { self.advance(); Ok(Pattern::Literal(LiteralKind::Bool(false))) }
+            // String literal pattern: "foo" =>
+            Some(Token::StringLit(s)) => {
+                self.advance();
+                let inner = if s.len() >= 2 { s[1..s.len()-1].to_owned() } else { s };
+                Ok(Pattern::Literal(LiteralKind::Str(inner)))
+            }
+            // Number literal pattern: 0 => / 42 => / 3.14 =>
+            Some(Token::NumberLit(s)) => {
+                self.advance();
+                let lit = if s.contains('.') || s.to_lowercase().contains('e') {
+                    LiteralKind::Float(s.replace('_', "").parse().unwrap_or(0.0))
+                } else {
+                    LiteralKind::Int(s.replace('_', "").parse().unwrap_or(0))
+                };
+                Ok(Pattern::Literal(lit))
+            }
+            // Negative number pattern: -42
+            Some(Token::Minus) => {
+                self.advance();
+                if let Some(Token::NumberLit(s)) = self.peek().cloned() {
+                    self.advance();
+                    let lit = if s.contains('.') {
+                        LiteralKind::Float(-s.replace('_', "").parse::<f64>().unwrap_or(0.0))
+                    } else {
+                        LiteralKind::Int(-s.replace('_', "").parse::<i128>().unwrap_or(0))
+                    };
+                    Ok(Pattern::Literal(lit))
+                } else {
+                    Ok(Pattern::Wildcard)
+                }
+            }
+            // Ident, path, or enum pattern
             Some(Token::Ident(name)) => {
                 self.advance();
                 if self.peek() == Some(&Token::DoubleColon) {
@@ -982,6 +1103,7 @@ impl Parser {
                 }
                 Ok(Pattern::Ident(name))
             }
+            // Tuple pattern
             Some(Token::LParen) => {
                 self.advance();
                 let mut pats = Vec::new();
@@ -1163,12 +1285,39 @@ impl Parser {
             let pattern = self.parse_pattern()?;
             let guard = if self.eat(&Token::When) { Some(self.parse_expr()?) } else { None };
             self.expect(&Token::FatArrow)?;
-            let body = self.parse_expr()?;
+            let body = self.parse_match_arm_body()?;
             self.eat(&Token::Comma);
             arms.push(MatchArm { pattern, guard, body });
         }
         self.expect(&Token::RBrace)?;
         Ok(Expr { kind: ExprKind::Match(Box::new(subject), arms), span: sp })
+    }
+
+    fn parse_match_arm_body(&mut self) -> ParseResult<Expr> {
+        let sp = self.span();
+        match self.peek().cloned() {
+            Some(Token::Throw) => {
+                self.advance();
+                let e = self.parse_expr()?;
+                let sp2 = sp.clone();
+                Ok(Expr { kind: ExprKind::Block(Block {
+                    stmts: vec![Stmt::Throw(e, sp.clone())],
+                                                tail: None, span: sp,
+                }), span: sp2 })
+            }
+            Some(Token::Return) => {
+                self.advance();
+                let val = if matches!(self.peek(), Some(Token::RBrace) | Some(Token::Comma) | None) {
+                    None
+                } else { Some(self.parse_expr()?) };
+                let sp2 = sp.clone();
+                Ok(Expr { kind: ExprKind::Block(Block {
+                    stmts: vec![Stmt::Return(val, sp.clone())],
+                                                tail: None, span: sp,
+                }), span: sp2 })
+            }
+            _ => self.parse_expr(),
+        }
     }
 
     fn parse_closure(&mut self) -> ParseResult<Expr> {
@@ -1208,6 +1357,8 @@ pub fn token_name(tok: &Token) -> String {
         Token::Match   => "`match`".into(), Token::Return => "`return`".into(),
         Token::Pub     => "`pub`".into(),   Token::Use    => "`use`".into(),
         Token::Using   => "`using`".into(),
+        Token::Usage   => "`usage`".into(),
+        Token::From    => "`from`".into(),
         Token::LBrace  => "`{`".into(),     Token::RBrace => "`}`".into(),
         Token::LParen  => "`(`".into(),     Token::RParen => "`)`".into(),
         Token::LAngle  => "`<`".into(),     Token::RAngle => "`>`".into(),
