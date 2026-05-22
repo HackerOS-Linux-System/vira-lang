@@ -1,0 +1,94 @@
+;; examples/gtk-files/src/main.vira
+;; HackerFiles — menedżer plików GTK4
+
+use <gtk>
+
+pub struct FileEntry {
+    name: str,
+    path: str,
+    size_kb: u64,
+    is_dir: bool,
+    mime: str,
+}
+
+pub struct AppState {
+    current_path: str,
+    show_hidden: bool,
+}
+
+impl AppState {
+    pub fn new() -> AppState {
+        AppState {
+            current_path: "/home",
+            show_hidden: false,
+        }
+    }
+
+    pub fn toggle_hidden(self) {
+        self.show_hidden = not self.show_hidden
+    }
+}
+
+fn format_size(kb: u64) -> str {
+    if kb < 1024 {
+        kb.to_string() + " KB"
+    } elif kb < 1024 * 1024 {
+        (kb / 1024).to_string() + " MB"
+    } else {
+        (kb / (1024 * 1024)).to_string() + " GB"
+    }
+}
+
+pub fn main() -> void! {
+    let app = gtk::Application::new(
+        "pl.hackeros.files",
+        gtk::ApplicationFlags::empty()
+    )
+
+    app.connect_activate(|a| {
+        let win = gtk::ApplicationWindow::new(a)
+        win.set_title("HackerFiles")
+        win.set_default_size(1200, 700)
+
+        let vbox    = gtk::Box::new(gtk::Orientation::Vertical, 0)
+        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 4)
+
+        let btn_home    = gtk::Button::from_icon_name("user-home-symbolic")
+        let btn_up      = gtk::Button::from_icon_name("go-up-symbolic")
+        let btn_refresh = gtk::Button::from_icon_name("view-refresh-symbolic")
+        let location    = gtk::Entry::new()
+        location.set_text("/home")
+        location.set_hexpand(true)
+
+        toolbar.append(btn_home)
+        toolbar.append(btn_up)
+        toolbar.append(btn_refresh)
+        toolbar.append(location)
+
+        let scroll = gtk::ScrolledWindow::new()
+        scroll.set_vexpand(true)
+
+        let store = gtk::StringList::new([])
+        store.append("📁 Documents")
+        store.append("📁 Downloads")
+        store.append("📄 README.md")
+        store.append("📄 vira.hk")
+
+        let factory = gtk::SignalListItemFactory::new()
+        let sel     = gtk::SingleSelection::new(store)
+        let view    = gtk::ListView::new(sel, factory)
+        scroll.set_child(view)
+
+        let status = gtk::Label::new("HackerFiles — menedżer plików")
+        status.set_xalign(0.0)
+
+        vbox.append(toolbar)
+        vbox.append(scroll)
+        vbox.append(status)
+
+        win.set_child(vbox)
+        win.present()
+    })
+
+    app.run()
+}
