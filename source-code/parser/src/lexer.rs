@@ -17,6 +17,8 @@ pub enum Token {
     // ── Keywords priority=2 (beat Ident priority=1) ───────────────────────────
     #[token("use",      priority = 2)] Use,
     #[token("using",    priority = 2)] Using,
+    #[token("usage",    priority = 2)] Usage,
+    #[token("from",     priority = 2)] From,
     #[token("fn",       priority = 2)] Fn,
     #[token("let",      priority = 2)] Let,
     #[token("var",      priority = 2)] Var,
