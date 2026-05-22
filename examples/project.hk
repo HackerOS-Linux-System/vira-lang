@@ -1,0 +1,8 @@
+[workspace]
+-> name    => vira-examples
+-> version => 0.1.0
+-> members => ["tauri-todo", "tauri-markdown", "tauri-dashboard", "tauri-terminal", "gtk-files", "qt-monitor", "slint-calc", "hello-world"]
+
+[build]
+! Wspólny katalog budowania
+-> output => build
