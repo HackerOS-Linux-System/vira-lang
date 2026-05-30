@@ -116,6 +116,7 @@ impl NativeApiRegistry {
                          ],
                          rust_prelude: vec![
                              "use tauri::{AppHandle, Manager, State};".to_owned(),
+                         "impl From<tauri::Error> for ViraError { fn from(e: tauri::Error) -> Self { ViraError::new(e.to_string()) } }".to_owned(),
                          "use serde::{Deserialize, Serialize};".to_owned(),
                          ],
                          features: vec!["tauri/devtools".to_owned()],
@@ -151,7 +152,11 @@ impl NativeApiRegistry {
                          ],
                          rust_prelude: vec![
                              "use gtk4::prelude::*;".to_owned(),
+                         "use gio::prelude::*;".to_owned(),
+                         "use gio::ApplicationFlags;".to_owned(),
                          "use gtk4::prelude::*;".to_owned(),
+                         "use gio::prelude::*;".to_owned(),
+                         "use gio::ApplicationFlags;".to_owned(),
                          ],
                          features: vec![],
                          },
@@ -222,7 +227,7 @@ impl NativeApiRegistry {
                              },
                          ],
                          rust_prelude: vec![
-                             "use cxx_qt_lib::{QString, QObject};".to_owned(),
+                             "use cxx_qt_lib::QString;".to_owned(),
                          ],
                          features: vec![],
                          },
