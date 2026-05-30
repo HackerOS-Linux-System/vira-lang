@@ -368,7 +368,7 @@ fn gen_kt_expr(expr: &Expr) -> String {
             format!("{r}.{method}({})", a.join(", "))
         }
         ExprKind::Field(obj, field) => format!("{}.{field}", gen_kt_expr(obj)),
-        ExprKind::If(cond, then, elifs, else_) => {
+        ExprKind::If(cond, _then, _elifs, else_) => {
             let mut s = format!("if ({}) {{\n", gen_kt_expr(cond));
             s.push_str("    /* then */\n}");
             if else_.is_some() { s.push_str(" else {\n    /* else */\n}"); }
