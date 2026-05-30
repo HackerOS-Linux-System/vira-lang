@@ -1,0 +1,91 @@
+use <android>
+
+pub struct Task {
+    id: u32,
+    title: str,
+    done: bool,
+    priority: u8,
+}
+
+pub struct AppState {
+    tasks: [Task],
+    next_id: u32,
+    filter: str,
+}
+
+impl AppState {
+    pub fn new() -> AppState {
+        AppState {
+            tasks: [],
+            next_id: 1,
+            filter: "all",
+        }
+    }
+
+    pub fn visible_tasks(self) -> [Task] {
+        match self.filter {
+            "done"   => self.tasks.filter(|t| t.done),
+            "active" => self.tasks.filter(|t| not t.done),
+            _        => self.tasks,
+        }
+    }
+
+    pub fn remaining(self) -> u32 {
+        self.tasks.filter(|t| not t.done).len() as u32
+    }
+}
+
+pub fn add_task(state: AppState, title: str, priority: u8) -> u32 {
+    if title == "" {
+        return 0
+    }
+    let task = Task {
+        id: state.next_id,
+        title: title,
+        done: false,
+        priority: priority,
+    }
+    state.tasks.push(task)
+    state.next_id += 1
+    state.next_id - 1
+}
+
+pub fn toggle_task(state: AppState, id: u32) -> bool {
+    var found: bool = false
+    for task in state.tasks {
+        if task.id == id {
+            let updated = Task {
+                id: task.id,
+                title: task.title,
+                done: not task.done,
+                priority: task.priority,
+            }
+            task = updated
+            found = true
+        }
+    }
+    found
+}
+
+pub fn delete_task(state: AppState, id: u32) -> bool {
+    let before = state.tasks.len()
+    state.tasks.retain(|t| t.id != id)
+    state.tasks.len() < before
+}
+
+pub fn get_tasks(state: AppState) -> [Task] {
+    state.visible_tasks()
+}
+
+pub fn set_filter(state: AppState, filter: str) {
+    state.filter = filter
+}
+
+/// Punkt wejściowy aplikacji Android
+/// Generuje MainActivity.kt + Compose UI
+pub fn main() -> void! {
+    let state = AppState::new()
+    add_task(state, "Zainstaluj HackerOS", 2)
+    add_task(state, "Naucz się Viry", 1)
+    add_task(state, "Zbuduj aplikację Android", 2)
+}
