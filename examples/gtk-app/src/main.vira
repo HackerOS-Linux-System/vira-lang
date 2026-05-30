@@ -1,0 +1,323 @@
+use <gtk:4.0>
+
+// ─── Model ────────────────────────────────────────────────────────────────────
+
+/// Wpis w systemie plików
+pub struct FileEntry {
+    name: str,
+    path: str,
+    size: u64,
+    is_dir: bool,
+    is_hidden: bool,
+    mime_type: str,
+    modified: u64,
+    permissions: u32,
+}
+
+/// Stan panelu plików
+pub struct FilePanel {
+    current_path: str,
+    entries: [FileEntry],
+    selected: [str],
+    show_hidden: bool,
+    sort_by: SortField,
+    sort_asc: bool,
+}
+
+pub enum SortField {
+    Name,
+    Size,
+    Modified,
+    Type,
+}
+
+pub enum FileError {
+    AccessDenied(str),
+    NotFound(str),
+    IoError(str),
+}
+
+impl FilePanel {
+    pub fn new(path: str) -> FilePanel {
+        FilePanel {
+            current_path: path,
+            entries: [],
+            selected: [],
+            show_hidden: false,
+            sort_by: SortField::Name,
+            sort_asc: true,
+        }
+    }
+
+    pub fn visible_entries(self) -> [FileEntry] {
+        if self.show_hidden {
+            self.entries
+        } else {
+            self.entries.filter(|e| not e.is_hidden)
+        }
+    }
+
+    pub fn selected_count(self) -> u32 {
+        self.selected.len() as u32
+    }
+
+    pub fn total_size(self) -> u64 {
+        var total: u64 = 0
+        for entry in self.entries {
+            if not entry.is_dir {
+                total += entry.size
+            }
+        }
+        total
+    }
+}
+
+/// Stan zakładek (bookmarks)
+pub struct Bookmark {
+    name: str,
+    path: str,
+    icon: str,
+}
+
+/// Główny stan aplikacji
+pub struct AppState {
+    left_panel: FilePanel,
+    right_panel: FilePanel,
+    active_panel: u8,
+    bookmarks: [Bookmark],
+    clipboard: [str],
+    clipboard_is_cut: bool,
+    search_query: str,
+}
+
+impl AppState {
+    pub fn new() -> AppState {
+        AppState {
+            left_panel: FilePanel::new("/home"),
+            right_panel: FilePanel::new("/"),
+            active_panel: 0,
+            bookmarks: default_bookmarks(),
+            clipboard: [],
+            clipboard_is_cut: false,
+            search_query: "",
+        }
+    }
+
+    pub fn active(self) -> FilePanel {
+        if self.active_panel == 0 { self.left_panel } else { self.right_panel }
+    }
+}
+
+fn default_bookmarks() -> [Bookmark] {
+    [
+        Bookmark { name: "Strona domowa",  path: "/home",        icon: "user-home" },
+        Bookmark { name: "Dokumenty",      path: "/home/docs",   icon: "folder-documents" },
+        Bookmark { name: "Pobrane",        path: "/home/dl",     icon: "folder-download" },
+        Bookmark { name: "HackerOS",       path: "/opt/hackeros",icon: "computer" },
+        Bookmark { name: "Kosz",           path: "trash:///",    icon: "user-trash" },
+    ]
+}
+
+// ─── Operacje na plikach ──────────────────────────────────────────────────────
+
+/// Odczytaj zawartość katalogu
+pub fn read_dir(path: str, show_hidden: bool) -> [FileEntry]! {
+    ;; Wywołanie systemu plików przez gtk::gio::File
+    ;; W pełnej implementacji: gio::File::for_path(path).enumerate_children(...)
+    []
+}
+
+/// Skopiuj pliki
+pub fn copy_files(sources: [str], dest: str) -> void! {
+    for src in sources {
+        ;; gio::File::for_path(src).copy(...)
+    }
+}
+
+/// Przenieś pliki
+pub fn move_files(sources: [str], dest: str) -> void! {
+    for src in sources {
+        ;; gio::File::for_path(src).move_async(...)
+    }
+}
+
+/// Usuń pliki (do kosza)
+pub fn trash_files(paths: [str]) -> void! {
+    for path in paths {
+        ;; gio::File::for_path(path).trash(...)
+    }
+}
+
+/// Utwórz katalog
+pub fn make_dir(path: str) -> void! {
+    ;; gio::File::for_path(path).make_directory(...)
+}
+
+/// Zmień nazwę
+pub fn rename(path: str, new_name: str) -> void! {
+    ;; gio::File::for_path(path).set_display_name(new_name, ...)
+}
+
+/// Otwórz plik domyślną aplikacją
+pub fn open_file(path: str) -> void! {
+    ;; gtk4::gio::AppInfo::launch_default_for_uri(...)
+}
+
+// ─── Formatowanie ─────────────────────────────────────────────────────────────
+
+pub fn format_size(bytes: u64) -> str {
+    if bytes < 1024 {
+        bytes.to_string() + " B"
+    } elif bytes < 1024 * 1024 {
+        (bytes / 1024).to_string() + " KB"
+    } elif bytes < 1024 * 1024 * 1024 {
+        (bytes / (1024 * 1024)).to_string() + " MB"
+    } else {
+        (bytes / (1024 * 1024 * 1024)).to_string() + " GB"
+    }
+}
+
+pub fn format_perms(mode: u32) -> str {
+    var s: str = ""
+    s += if mode & 0o400 != 0 { "r" } else { "-" }
+    s += if mode & 0o200 != 0 { "w" } else { "-" }
+    s += if mode & 0o100 != 0 { "x" } else { "-" }
+    s += if mode & 0o040 != 0 { "r" } else { "-" }
+    s += if mode & 0o020 != 0 { "w" } else { "-" }
+    s += if mode & 0o010 != 0 { "x" } else { "-" }
+    s += if mode & 0o004 != 0 { "r" } else { "-" }
+    s += if mode & 0o002 != 0 { "w" } else { "-" }
+    s += if mode & 0o001 != 0 { "x" } else { "-" }
+    s
+}
+
+// ─── GTK UI budowanie ─────────────────────────────────────────────────────────
+
+/// Zbuduj pasek narzędzi
+fn build_toolbar(app: AppState) -> gtk::Box {
+    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 4)
+
+    let btn_back    = gtk::Button::with_icon("go-previous")
+    let btn_forward = gtk::Button::with_icon("go-next")
+    let btn_up      = gtk::Button::with_icon("go-up")
+    let btn_refresh = gtk::Button::with_icon("view-refresh")
+    let btn_home    = gtk::Button::with_icon("user-home")
+
+    let location = gtk::Entry::new()
+    location.set_text(app.active().current_path)
+    location.set_hexpand(true)
+
+    let btn_hidden = gtk::ToggleButton::with_label("Ukryte")
+
+    bar.append(btn_back)
+    bar.append(btn_forward)
+    bar.append(btn_up)
+    bar.append(btn_refresh)
+    bar.append(btn_home)
+    bar.append(location)
+    bar.append(btn_hidden)
+
+    bar
+}
+
+/// Zbuduj panel boczny z zakładkami
+fn build_sidebar(bookmarks: [Bookmark]) -> gtk::ListBox {
+    let list = gtk::ListBox::new()
+    list.set_selection_mode(gtk::SelectionMode::Single)
+
+    for bookmark in bookmarks {
+        let row  = gtk::ListBoxRow::new()
+        let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 8)
+        let icon = gtk::Image::from_icon_name(bookmark.icon)
+        let label = gtk::Label::new(bookmark.name)
+        box_.append(icon)
+        box_.append(label)
+        row.set_child(box_)
+        list.append(row)
+    }
+
+    list
+}
+
+/// Zbuduj widok plików (IconView)
+fn build_file_view(panel: FilePanel) -> gtk::ScrolledWindow {
+    let scroll = gtk::ScrolledWindow::new()
+    let store  = gtk::ListStore::new()
+    let view   = gtk::IconView::new_with_model(store)
+
+    view.set_pixbuf_column(0)
+    view.set_text_column(1)
+    view.set_item_width(80)
+    view.set_selection_mode(gtk::SelectionMode::Multiple)
+
+    for entry in panel.visible_entries() {
+        let icon = if entry.is_dir { "folder" } else { entry.mime_type }
+        store.append_row(icon, entry.name)
+    }
+
+    scroll.set_child(view)
+    scroll
+}
+
+/// Zbuduj pasek stanu
+fn build_statusbar(panel: FilePanel) -> gtk::Box {
+    let bar   = gtk::Box::new(gtk::Orientation::Horizontal, 8)
+    let items = gtk::Label::new(
+        panel.visible_entries().len().to_string() + " elementów"
+    )
+    let size  = gtk::Label::new(
+        "Rozmiar: " + format_size(panel.total_size())
+    )
+    let sel   = gtk::Label::new(
+        "Zaznaczono: " + panel.selected_count().to_string()
+    )
+    bar.append(items)
+    bar.append(gtk::Separator::new(gtk::Orientation::Vertical))
+    bar.append(size)
+    bar.append(gtk::Separator::new(gtk::Orientation::Vertical))
+    bar.append(sel)
+    bar
+}
+
+// ─── Entry point ──────────────────────────────────────────────────────────────
+
+pub fn main() -> void! {
+    let app = gtk::Application::new(
+        "pl.hackeros.files",
+        gtk::ApplicationFlags::default()
+    )
+
+    app.connect_activate(|app| {
+        let state = AppState::new()
+
+        let win = gtk::ApplicationWindow::new(app)
+        win.set_title("HackerFiles")
+        win.set_default_size(1400, 800)
+
+        let root   = gtk::Box::new(gtk::Orientation::Vertical, 0)
+        let toolbar = build_toolbar(state)
+        let content = gtk::Paned::new(gtk::Orientation::Horizontal)
+        let sidebar = build_sidebar(state.bookmarks)
+
+        let panels = gtk::Paned::new(gtk::Orientation::Horizontal)
+        let left_view  = build_file_view(state.left_panel)
+        let right_view = build_file_view(state.right_panel)
+        panels.set_start_child(left_view)
+        panels.set_end_child(right_view)
+
+        content.set_start_child(sidebar)
+        content.set_end_child(panels)
+        content.set_position(200)
+
+        let statusbar = build_statusbar(state.active())
+
+        root.append(toolbar)
+        root.append(content)
+        root.append(statusbar)
+
+        win.set_child(root)
+        win.present()
+    })
+
+    app.run()
+}
