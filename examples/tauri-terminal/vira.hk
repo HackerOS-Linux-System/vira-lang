@@ -1,0 +1,14 @@
+[package]
+-> name        => hacker-terminal
+-> version     => 0.1.0
+-> description => Emulator terminala dla HackerOS
+
+[build]
+-> entry  => src/main.vira
+-> target => tauri
+
+[tauri]
+-> window_title  => HackerTerm
+-> window_width  => 1200
+-> window_height => 700
+-> frontend      => lib/index.html
