@@ -1,0 +1,8 @@
+[package]
+-> name        => hacker-files
+-> version     => 0.1.0
+-> description => Menedżer plików GTK4 dla HackerOS
+
+[build]
+-> entry  => src/main.vira
+-> target => gtk
