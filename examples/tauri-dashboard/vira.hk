@@ -1,0 +1,14 @@
+[package]
+-> name        => hacker-dashboard
+-> version     => 0.1.0
+-> description => Dashboard systemowy dla HackerOS
+
+[build]
+-> entry  => src/main.vira
+-> target => tauri
+
+[tauri]
+-> window_title  => HackerDash
+-> window_width  => 1400
+-> window_height => 900
+-> frontend      => lib/index.html
