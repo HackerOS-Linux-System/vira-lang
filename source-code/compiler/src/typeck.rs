@@ -334,11 +334,14 @@ impl TypeChecker {
                 };
                 // Check argument count for known functions
                 if let Some(fname) = name {
+                    // Skip arg count check for constructor "new" — gtk::Foo::new() etc.
+                    // have different signatures per type, not tracked in our simple env
+                    let is_constructor = fname == "new" || fname.ends_with("::new");
                     if let Some((param_tys, ret_ty)) = self.env.lookup_fn(fname).cloned() {
                         let expected = param_tys.len();
                         let got = args.len();
                         // allow self methods to have one less arg
-                        if expected != got && !(got + 1 == expected) {
+                        if !is_constructor && expected != got && !(got + 1 == expected) {
                             self.bag.push(
                                 Diagnostic::warning(
                                     "Argument count mismatch",
