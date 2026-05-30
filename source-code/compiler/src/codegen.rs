@@ -6,6 +6,8 @@ pub struct CodegenContext {
     pub indent: usize,
     pub native_apis: Vec<NativeApi>,
     api_registry: NativeApiRegistry,
+    in_impl_block: bool,
+    in_main_fn: bool,
 }
 
 impl CodegenContext {
@@ -15,6 +17,8 @@ impl CodegenContext {
             indent: 0,
             native_apis: Vec::new(),
             api_registry: NativeApiRegistry::new(),
+            in_impl_block: false,
+            in_main_fn: false,
         }
     }
 
@@ -141,6 +145,8 @@ impl CodegenContext {
         }
 
         // Detect tauri command: pub fn in tauri context
+        let old_in_main = self.in_main_fn;
+        self.in_main_fn = f.name == "main";
         let is_tauri_command = f.visibility == Visibility::Public
         && self.has_tauri_api();
         if is_tauri_command {
@@ -194,10 +200,12 @@ impl CodegenContext {
             // Abstract / extern signature
             self.emitln(&format!("{sig};"));
         }
+        self.in_main_fn = old_in_main;
     }
 
     fn param_str(&self, p: &Param) -> String {
         if p.is_self {
+            if self.in_impl_block { return "&mut self".to_owned(); }
             return "self".to_owned();
         }
         format!("{}: {}", p.name, self.type_str(&p.ty))
@@ -363,9 +371,11 @@ impl CodegenContext {
 
         self.emitln(&format!("{header} {{"));
         self.indent();
+        self.in_impl_block = true;
         for item in &i.items {
             self.generate_item(item);
         }
+        self.in_impl_block = false;
         self.dedent();
         self.emitln("}");
     }
@@ -500,7 +510,14 @@ impl CodegenContext {
             ExprKind::Literal(lit) => self.literal_str(lit),
             ExprKind::Ident(name) => name.clone(),
             ExprKind::Path(segments) => {
-                segments.iter().map(|s| Self::map_mod(s)).collect::<Vec<_>>().join("::")
+                let mapped: Vec<String> = segments.iter().map(|s| Self::map_mod(s)).collect();
+                // gtk::ApplicationFlags → gio::ApplicationFlags (it's in gio crate)
+                let joined = mapped.join("::");
+                if joined == "gtk4::ApplicationFlags" {
+                    "gio::ApplicationFlags".to_owned()
+                } else {
+                    joined
+                }
             }
             ExprKind::MacroCall(path, bracket, args) => {
                 let path_str = path.iter().map(|s| Self::map_mod(s)).collect::<Vec<_>>().join("::");
@@ -550,8 +567,37 @@ impl CodegenContext {
                 let recv_str = self.expr_str(receiver);
                 let arg_strs: Vec<_> = args.iter().map(|a| self.expr_str(&a.value)).collect();
                 let args_str = arg_strs.join(", ");
-                // Use stdlib resolution for proper Rust emit
-                crate::stdlib::emit_method_call(&recv_str, method, &args_str)
+
+                // Methods needing &str (not String) as argument
+                let str_ref_methods = ["contains","starts_with","ends_with","join",
+                "set_text","append","from_icon_name","push_str",
+                "set_label","set_markup","set_tooltip_text"];
+                // GTK4 methods needing Option<&str>
+                let opt_str_methods = ["set_title","set_subtitle"];
+                // GTK4 methods needing Option<&impl IsA<Widget>>
+                let opt_widget_methods = ["set_child","set_start_child","set_end_child",
+                "set_title_widget","set_center_widget"];
+
+                if opt_widget_methods.contains(&method.as_str()) {
+                    // Wrap with Some(&...) for GTK4 Option<&impl IsA<Widget>>
+                    let wrapped = arg_strs.iter()
+                    .map(|a| format!("Some(&{a})"))
+                    .collect::<Vec<_>>().join(", ");
+                    format!("{recv_str}.{method}({wrapped})")
+                } else if opt_str_methods.contains(&method.as_str()) {
+                    // Wrap with Some(...) for GTK4 Option<&str>
+                    let wrapped = arg_strs.iter()
+                    .map(|a| if a.starts_with('"') { format!("Some({a})") } else { format!("Some(&{a})") })
+                    .collect::<Vec<_>>().join(", ");
+                    format!("{recv_str}.{method}({wrapped})")
+                } else if str_ref_methods.contains(&method.as_str()) {
+                    let ref_args = arg_strs.iter()
+                    .map(|a| if a.starts_with('"') || a.starts_with('&') { a.clone() } else { format!("&{a}") })
+                    .collect::<Vec<_>>().join(", ");
+                    format!("{recv_str}.{method}({ref_args})")
+                } else {
+                    crate::stdlib::emit_method_call(&recv_str, method, &args_str)
+                }
             }
             ExprKind::Field(obj, field) => {
                 format!("{}.{}", self.expr_str(obj), field)
@@ -588,17 +634,24 @@ impl CodegenContext {
                 format!("for {} in {} {}", self.pattern_str(pat), self.expr_str(iter), self.block_str(body))
             }
             ExprKind::Match(subject, arms) => {
-                let mut s = format!("match {} {{\n", self.expr_str(subject));
+                let subj_s = self.expr_str(subject);
+                // Detect Option<T> match: any arm with nil/None pattern
+                let is_opt = arms.iter().any(|a| matches!(
+                    &a.pattern, Pattern::Literal(LiteralKind::Nil)
+                ));
+                let mut s = format!("match {subj_s} {{\n");
                 for arm in arms {
                     let guard = arm.guard.as_ref()
                     .map(|g| format!(" if {}", self.expr_str(g)))
                     .unwrap_or_default();
-                    s.push_str(&format!(
-                        "    {}{} => {},\n",
-                        self.pattern_str(&arm.pattern),
-                                        guard,
-                                        self.expr_str(&arm.body)
-                    ));
+                    let body = self.expr_str(&arm.body);
+                    // For Option match: nil → None, ident → Some(ident)
+                    let pat = match &arm.pattern {
+                        Pattern::Literal(LiteralKind::Nil) => "None".to_owned(),
+                        Pattern::Ident(n) if is_opt && n != "_" => format!("Some({n})"),
+                        _ => self.pattern_str(&arm.pattern),
+                    };
+                    s.push_str(&format!("    {pat}{guard} => {body},\n"));
                 }
                 s.push('}');
                 s
@@ -633,7 +686,15 @@ impl CodegenContext {
                 // `is` → matches! in Rust
                 format!("matches!({}, {})", self.expr_str(e), self.type_str(ty))
             }
-            ExprKind::Try(e) => format!("{}?", self.expr_str(e)),
+            ExprKind::Try(e) => {
+                let inner = self.expr_str(e);
+                if self.in_main_fn && self.has_tauri_api() {
+                    {
+                        let msg = "Vira runtime error";
+                        format!("{inner}.unwrap_or_else(|_e| panic!(\"{msg}: {{}}\", _e))")
+                    }
+                } else { format!("{inner}?") }
+            }
             ExprKind::Await(e) => format!("{}.await", self.expr_str(e)),
             ExprKind::Spawn(e) => {
                 format!("tokio::spawn(async move {{ {} }})", self.expr_str(e))
