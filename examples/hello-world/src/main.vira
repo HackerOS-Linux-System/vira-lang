@@ -1,8 +1,3 @@
-;; examples/hello-world/src/main.vira
-;; Hello World w Vira — najprostszy możliwy program
-;; Pokazuje podstawową składnię języka
-
-/// Główna struktura wiadomości
 pub struct Message {
     text: str,
     author: str,
