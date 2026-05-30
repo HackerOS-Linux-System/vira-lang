@@ -1,0 +1,8 @@
+[package]
+-> name        => hacker-monitor
+-> version     => 0.1.0
+-> description => Monitor systemu Qt6 dla HackerOS
+
+[build]
+-> entry  => src/main.vira
+-> target => qt
