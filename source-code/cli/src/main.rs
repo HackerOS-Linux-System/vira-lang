@@ -470,11 +470,41 @@ fn build_cargo_bar(manifest: &ViraManifest, out_dir: &Path, release: bool) -> Re
     let mut args = vec!["build"];
     if release { args.push("--release"); }
 
-    ui::run_cargo_with_progress(
-        &args,
-        &out_dir.join("Cargo.toml"),
-                                &manifest.name,
-    )?;
+    // Check prerequisites before attempting build
+    let target_name = match manifest.target {
+        BuildTarget::Tauri => "tauri",
+        BuildTarget::Gtk   => "gtk",
+        BuildTarget::Qt    => "qt",
+        _                  => "cli",
+    };
+    let missing = vira_compiler::dep_check::check_prerequisites(target_name);
+    if !missing.is_empty() {
+        println!();
+        println!("  [33m⚠ Brakujące zależności systemowe:[0m");
+        for m in &missing {
+            println!("  [36m›[0m {m}");
+        }
+        println!();
+    }
+
+    // If verbose, run cargo directly so user sees full output
+    if std::env::args().any(|a| a == "--verbose" || a == "-v") {
+        println!("  {} Running cargo directly (--verbose mode)", "›".cyan());
+        let status = std::process::Command::new("cargo")
+        .args(&args)
+        .arg("--manifest-path").arg(out_dir.join("Cargo.toml"))
+        .status()
+        .context("cargo not found")?;
+        if !status.success() {
+            anyhow::bail!("cargo build failed — see errors above");
+        }
+    } else {
+        ui::run_cargo_with_progress(
+            &args,
+            &out_dir.join("Cargo.toml"),
+                                    &manifest.name,
+        )?;
+    }
 
     let prof = if release { "release" } else { "debug" };
     // Cargo puts the binary in out_dir/target/<profile>/<name>
