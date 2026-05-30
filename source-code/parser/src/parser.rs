@@ -20,18 +20,26 @@ impl Parser {
     fn peek(&self) -> Option<&Token> {
         let mut i = self.pos;
         while i < self.tokens.len() {
-            if matches!(&self.tokens[i].node, Token::DocComment(_)) { i += 1; }
-            else { return Some(&self.tokens[i].node); }
+            match &self.tokens[i].node {
+                Token::DocComment(_)
+                | Token::SingleComment(_)
+                | Token::LineComment(_) => { i += 1; }
+                other => return Some(other),
+            }
         }
         None
     }
 
     fn peek2(&self) -> Option<&Token> {
-        // skip doc comments for second peek too
         let mut i = self.pos;
         let mut seen = 0;
         while i < self.tokens.len() {
-            if matches!(&self.tokens[i].node, Token::DocComment(_)) { i += 1; continue; }
+            match &self.tokens[i].node {
+                Token::DocComment(_)
+                | Token::SingleComment(_)
+                | Token::LineComment(_) => { i += 1; continue; }
+                _ => {}
+            }
             if seen == 1 { return Some(&self.tokens[i].node); }
             seen += 1;
             i += 1;
@@ -113,9 +121,16 @@ impl Parser {
             if self.pos >= self.tokens.len() { return None; }
             let tok = self.tokens[self.pos].clone();
             self.pos += 1;
-            if let Token::DocComment(s) = &tok.node {
-                self.pending_docs.push(s.trim_start_matches('/').trim().to_owned());
-                continue;
+            match &tok.node {
+                Token::DocComment(s) => {
+                    self.pending_docs.push(s.trim_start_matches('/').trim().to_owned());
+                    continue;
+                }
+                // Skip ;; single-line and // line comments
+                Token::SingleComment(_) | Token::LineComment(_) => {
+                    continue;
+                }
+                _ => {}
             }
             self.last_token_line = tok.span.line;
             return Some(tok);
@@ -969,18 +984,28 @@ impl Parser {
                     let ty = self.parse_type()?;
                     base = Expr { kind: ExprKind::Is(Box::new(base), ty), span: sp };
                 }
-                // Macro call: expr![ ... ] or expr!( ... ) or expr!{ ... }
-                // same_line OR leading (macro call is always attached to name)
+                // Bang after expr: either macro call (expr![...]) or unwrap (expr!)
                 Some(Token::Bang) if same_line || is_leading_dot => {
-                    self.advance(); // eat !
-                    // Collect path segments from base expr (Path or Ident)
-                    let path = match &base.kind {
-                        ExprKind::Path(segs) => segs.clone(),
-                        ExprKind::Ident(n)   => vec![n.clone()],
-                        _ => vec!["macro".to_owned()],
-                    };
-                    let (bracket, args) = self.parse_macro_args()?;
-                    base = Expr { kind: ExprKind::MacroCall(path, bracket, args), span: sp };
+                    // Peek next token: if [ ( { → macro call, else → unwrap/Try
+                    if matches!(self.tokens.get(self.pos).map(|t| &t.node),
+                        Some(Token::LBracket) | Some(Token::LParen) | Some(Token::LBrace))
+                    {
+                        self.advance(); // eat !
+                        let path = match &base.kind {
+                            ExprKind::Path(segs) => segs.clone(),
+                            ExprKind::Ident(n)   => vec![n.clone()],
+                            _ => vec!["macro".to_owned()],
+                        };
+                        let (bracket, args) = self.parse_macro_args()?;
+                        base = Expr { kind: ExprKind::MacroCall(path, bracket, args), span: sp };
+                    } else {
+                        // expr! = unwrap (like Kotlin !!)
+                        self.advance(); // eat !
+                        base = Expr {
+                            kind: ExprKind::MethodCall(Box::new(base), "unwrap".to_owned(), vec![], vec![]),
+                            span: sp,
+                        };
+                    }
                 }
                 _ => break,
             }
@@ -1003,11 +1028,10 @@ impl Parser {
         };
         self.advance(); // eat opening bracket
         let mut args = Vec::new();
+        // Parse macro args — cross line boundaries (multiline generate_handler![])
         while self.peek() != Some(&close) && !self.at_end() {
-            // macro args can be idents separated by commas (e.g. generate_handler![fn1, fn2])
-            // parse as full exprs to handle complex cases
             args.push(self.parse_expr()?);
-            if !self.eat(&Token::Comma) { break; }
+            self.eat(&Token::Comma); // eat comma including trailing
         }
         self.expect(&close)?;
         Ok((bracket, args))
@@ -1101,6 +1125,17 @@ impl Parser {
                     }
                     return Ok(Pattern::Enum(full, vec![]));
                 }
+                // Ident( → enum-like pattern: Ok(v), Err(e), Some(x)
+                if self.peek() == Some(&Token::LParen) {
+                    self.advance();
+                    let mut fields = Vec::new();
+                    while self.peek() != Some(&Token::RParen) {
+                        fields.push(self.parse_pattern()?);
+                        if !self.eat(&Token::Comma) { break; }
+                    }
+                    self.expect(&Token::RParen)?;
+                    return Ok(Pattern::Enum(name, fields));
+                }
                 Ok(Pattern::Ident(name))
             }
             // Tuple pattern
@@ -1190,7 +1225,7 @@ impl Parser {
                 Ok(Expr { kind: ExprKind::For(p, Box::new(it), b), span: sp })
             }
             Some(Token::Match)  => self.parse_match(),
-            Some(Token::Pipe)   => self.parse_closure(),
+            Some(Token::Pipe) | Some(Token::PipePipe) => self.parse_closure(),
             Some(Token::Unsafe) => {
                 self.advance();
                 Ok(Expr { kind: ExprKind::Unsafe(self.parse_block()?), span: sp })
@@ -1324,14 +1359,19 @@ impl Parser {
         let sp = self.span();
         self.expect(&Token::Pipe)?;
         let mut params = Vec::new();
-        while self.peek() != Some(&Token::Pipe) {
-            let psp = self.span();
-            let (name, _) = self.expect_ident()?;
-            let ty = if self.eat(&Token::Colon) { self.parse_type()? } else { TypeExpr::Infer };
-            params.push(Param { name, ty, default: None, is_self: false, span: psp });
-            if !self.eat(&Token::Comma) { break; }
+        // Handle || (zero arg closure) — PipePipe token
+        if self.peek() == Some(&Token::PipePipe) {
+            self.advance(); // eat ||
+        } else {
+            while self.peek() != Some(&Token::Pipe) && !self.at_end() {
+                let psp = self.span();
+                let (name, _) = self.expect_ident()?;
+                let ty = if self.eat(&Token::Colon) { self.parse_type()? } else { TypeExpr::Infer };
+                params.push(Param { name, ty, default: None, is_self: false, span: psp });
+                if !self.eat(&Token::Comma) { break; }
+            }
+            self.expect(&Token::Pipe)?;
         }
-        self.expect(&Token::Pipe)?;
         let ret_ty = if self.eat(&Token::Arrow) { Some(self.parse_type()?) } else { None };
         Ok(Expr { kind: ExprKind::Closure(params, ret_ty, Box::new(self.parse_expr()?)), span: sp })
     }
