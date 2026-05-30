@@ -1,6 +1,3 @@
-;; examples/gtk-files/src/main.vira
-;; HackerFiles — menedżer plików GTK4
-
 use <gtk>
 
 pub struct FileEntry {
