@@ -236,5 +236,19 @@ fn from(e: Box<dyn std::error::Error>) -> Self { ViraError::new(e.to_string()) }
 
 /// Vira Result type alias
 pub type ViraResult<T> = Result<T, ViraError>;
+
+// Note: tauri::Error conversion is handled by the app-level build
+
+/// Helper for Vira string operations — ensures &str is used correctly
+#[allow(dead_code)]
+#[inline]
+fn __vira_str<T: AsRef<str>>(s: T) -> String { s.as_ref().to_owned() }
+
+/// Vira println — accepts both String and &str
+#[allow(unused_macros)]
+macro_rules! println {
+($s:expr) => { ::std::println!("{}", $s) };
+($fmt:expr, $($arg:tt)*) => { ::std::println!($fmt, $($arg)*) };
+}
 // ── end Vira stdlib ───────────────────────────────────────────────────────────
 "#;
