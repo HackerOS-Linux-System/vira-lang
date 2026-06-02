@@ -171,67 +171,67 @@ pub const STDLIB_PREAMBLE: &str = r#"
 // ── Vira stdlib ──────────────────────────────────────────────────────────────
 #[allow(unused_macros)]
 macro_rules! vira_println {
-($($arg:tt)*) => { println!($($arg)*) }
+    ($($arg:tt)*) => { println!($($arg)*) }
 }
 #[allow(unused_macros)]
 macro_rules! vira_eprintln {
-($($arg:tt)*) => { eprintln!($($arg)*) }
+    ($($arg:tt)*) => { eprintln!($($arg)*) }
 }
 
 /// Vira string concat operator: a + b where b is any Display type
 #[allow(dead_code)]
 #[inline(always)]
 fn __vira_concat<A: std::fmt::Display, B: std::fmt::Display>(a: A, b: B) -> String {
-format!("{a}{b}")
-    }
+    std::format!("{}{}", a, b)
+}
 
-    /// ViraError — base error type for throw/catch
-    #[derive(Debug)]
-    pub struct ViraError {
+/// ViraError — base error type for throw/catch
+#[derive(Debug)]
+pub struct ViraError {
     pub message: String,
-pub kind: ViraErrorKind,
+    pub kind: ViraErrorKind,
 }
 
 #[derive(Debug)]
 pub enum ViraErrorKind {
-Runtime,
-NotFound,
-InvalidInput,
-IoError,
-Custom(String),
+    Runtime,
+    NotFound,
+    InvalidInput,
+    IoError,
+    Custom(String),
 }
 
 impl std::fmt::Display for ViraError {
-fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-write!(f, "{}", self.message)
-}
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
 }
 
 impl std::error::Error for ViraError {}
 
 impl ViraError {
-pub fn new(msg: impl Into<String>) -> Self {
-ViraError { message: msg.into(), kind: ViraErrorKind::Runtime }
-}
-pub fn not_found(msg: impl Into<String>) -> Self {
-ViraError { message: msg.into(), kind: ViraErrorKind::NotFound }
-}
-pub fn invalid(msg: impl Into<String>) -> Self {
-ViraError { message: msg.into(), kind: ViraErrorKind::InvalidInput }
-}
+    pub fn new(msg: impl Into<String>) -> Self {
+        ViraError { message: msg.into(), kind: ViraErrorKind::Runtime }
+    }
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        ViraError { message: msg.into(), kind: ViraErrorKind::NotFound }
+    }
+    pub fn invalid(msg: impl Into<String>) -> Self {
+        ViraError { message: msg.into(), kind: ViraErrorKind::InvalidInput }
+    }
 }
 
 impl From<std::io::Error> for ViraError {
-fn from(e: std::io::Error) -> Self { ViraError { message: e.to_string(), kind: ViraErrorKind::IoError } }
+    fn from(e: std::io::Error) -> Self { ViraError { message: e.to_string(), kind: ViraErrorKind::IoError } }
 }
 impl From<String> for ViraError {
-fn from(s: String) -> Self { ViraError::new(s) }
+    fn from(s: String) -> Self { ViraError::new(s) }
 }
 impl From<&str> for ViraError {
-fn from(s: &str) -> Self { ViraError::new(s) }
+    fn from(s: &str) -> Self { ViraError::new(s) }
 }
 impl From<Box<dyn std::error::Error>> for ViraError {
-fn from(e: Box<dyn std::error::Error>) -> Self { ViraError::new(e.to_string()) }
+    fn from(e: Box<dyn std::error::Error>) -> Self { ViraError::new(e.to_string()) }
 }
 
 /// Vira Result type alias
@@ -247,8 +247,8 @@ fn __vira_str<T: AsRef<str>>(s: T) -> String { s.as_ref().to_owned() }
 /// Vira println — accepts both String and &str
 #[allow(unused_macros)]
 macro_rules! println {
-($s:expr) => { ::std::println!("{}", $s) };
-($fmt:expr, $($arg:tt)*) => { ::std::println!($fmt, $($arg)*) };
+    ($s:expr) => { ::std::println!("{}", $s) };
+    ($fmt:expr, $($arg:tt)*) => { ::std::println!($fmt, $($arg)*) };
 }
 // ── end Vira stdlib ───────────────────────────────────────────────────────────
 "#;
