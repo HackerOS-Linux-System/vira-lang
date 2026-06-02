@@ -265,7 +265,7 @@ impl Parser {
 
         match self.peek().cloned() {
             Some(Token::Fn) | Some(Token::Init) | Some(Token::Deinit) =>
-            Ok(Item::Function(self.parse_fn(docs, vis, is_async, is_inline, is_unsafe, is_comptime)?)),
+                Ok(Item::Function(self.parse_fn(docs, vis, is_async, is_inline, is_unsafe, is_comptime)?)),
             Some(Token::Struct)  => Ok(Item::Struct(self.parse_struct(docs, vis)?)),
             Some(Token::Enum)    => Ok(Item::Enum(self.parse_enum(docs, vis)?)),
             Some(Token::Trait)   => Ok(Item::Trait(self.parse_trait(docs, vis)?)),
@@ -275,7 +275,7 @@ impl Parser {
             Some(Token::Extern)  => Ok(Item::ExternBlock(self.parse_extern()?)),
             Some(ref tok) => Err(ParseError::unexpected(
                 "item (fn / struct / enum / trait / impl / type / const)".into(),
-                                                        token_name(tok), self.span(),
+                token_name(tok), self.span(),
             )),
             None => Err(ParseError::eof(self.span())),
         }
@@ -301,7 +301,7 @@ impl Parser {
         let where_clause = self.parse_where_clause()?;
         let body         = if self.peek() == Some(&Token::LBrace) { Some(self.parse_block()?) } else { None };
         Ok(FunctionDef { docs, visibility, is_async, is_inline, is_unsafe, is_comptime,
-            name, generics, params, return_type, where_clause, body, span: sp })
+                         name, generics, params, return_type, where_clause, body, span: sp })
     }
 
     fn parse_fn_params(&mut self) -> ParseResult<Vec<Param>> {
@@ -676,13 +676,13 @@ impl Parser {
                 self.advance();
                 // Return with no value if next token is on a new line or is }
                 let val = if self.stmt_end_ahead(&sp) { None }
-                else { Some(self.parse_expr()?) };
+                          else { Some(self.parse_expr()?) };
                 Ok(Stmt::Return(val, sp))
             }
             Some(Token::Break) => {
                 self.advance();
                 let val = if self.stmt_end_ahead(&sp) { None }
-                else { Some(self.parse_expr()?) };
+                          else { Some(self.parse_expr()?) };
                 Ok(Stmt::Break(val, sp))
             }
             Some(Token::Continue) => { self.advance(); Ok(Stmt::Continue(sp)) }
@@ -690,7 +690,7 @@ impl Parser {
             Some(Token::Throw)    => { self.advance(); Ok(Stmt::Throw(self.parse_expr()?, sp)) }
             Some(Token::Fn) | Some(Token::Struct) | Some(Token::Enum)
             | Some(Token::Trait) | Some(Token::Impl) | Some(Token::Type) | Some(Token::Const) =>
-            Ok(Stmt::Item(self.parse_item()?)),
+                Ok(Stmt::Item(self.parse_item()?)),
             _ => Ok(Stmt::Expr(self.parse_expr_stmt()?)),
         }
     }
@@ -946,7 +946,7 @@ impl Parser {
             // We detect this by: Dot is on a DIFFERENT line AND its column <= sp.col+8
             // (it's indented under the chain start) — "leading dot" pattern.
             let is_leading_dot = matches!(self.peek(), Some(Token::Dot))
-            && !same_line;
+                && !same_line;
             match self.peek().cloned() {
                 Some(Token::Dot) if same_line || is_leading_dot => {
                     self.advance();
@@ -1249,8 +1249,8 @@ impl Parser {
                     }
                     // Path struct literal: Foo::Bar { field: val } — only same line
                     let is_path_struct_lit = self.peek() == Some(&Token::LBrace)
-                    && self.current_line() == sp.line
-                    && self.looks_like_struct_body();
+                        && self.current_line() == sp.line
+                        && self.looks_like_struct_body();
                     if is_path_struct_lit {
                         self.advance();
                         let mut fields = Vec::new();
@@ -1273,8 +1273,8 @@ impl Parser {
                 //   2. inside the brace we see: IDENT followed by COLON (field: val)
                 //      OR the brace is immediately closed (empty struct {})
                 let is_struct_lit = self.peek() == Some(&Token::LBrace)
-                && self.current_line() == sp.line
-                && self.looks_like_struct_body();
+                    && self.current_line() == sp.line
+                    && self.looks_like_struct_body();
                 if is_struct_lit {
                     self.advance();
                     let mut fields = Vec::new();
@@ -1337,7 +1337,7 @@ impl Parser {
                 let sp2 = sp.clone();
                 Ok(Expr { kind: ExprKind::Block(Block {
                     stmts: vec![Stmt::Throw(e, sp.clone())],
-                                                tail: None, span: sp,
+                    tail: None, span: sp,
                 }), span: sp2 })
             }
             Some(Token::Return) => {
@@ -1348,7 +1348,7 @@ impl Parser {
                 let sp2 = sp.clone();
                 Ok(Expr { kind: ExprKind::Block(Block {
                     stmts: vec![Stmt::Return(val, sp.clone())],
-                                                tail: None, span: sp,
+                    tail: None, span: sp,
                 }), span: sp2 })
             }
             _ => self.parse_expr(),
