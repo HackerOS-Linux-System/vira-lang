@@ -1,8 +1,0 @@
-use <android>
-
-/// Główny ekran aplikacji
-pub fn TaskScreen(state: AppState) {
-    ;; Compose-style UI declaration
-    let tasks = state.visible_tasks()
-    let count = state.remaining()
-}

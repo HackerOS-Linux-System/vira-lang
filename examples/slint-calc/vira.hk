@@ -1,8 +1,0 @@
-[package]
--> name        => hacker-calc
--> version     => 0.1.0
--> description => Kalkulator Slint dla HackerOS
-
-[build]
--> entry  => src/main.vira
--> target => slint

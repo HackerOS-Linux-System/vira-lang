@@ -1,8 +1,0 @@
-[package]
--> name        => hacker-android
--> version     => 0.1.0
--> description => Aplikacja Android napisana w Vira
-
-[build]
--> entry  => src/main.vira
--> target => android

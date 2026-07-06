@@ -1,8 +1,0 @@
-[package]
--> name        => hello-world
--> version     => 0.1.0
--> description => Hello World w Vira
-
-[build]
--> entry  => src/main.vira
--> target => cli
