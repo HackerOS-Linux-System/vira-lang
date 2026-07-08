@@ -1,1 +1,61 @@
+# hyperc — kompilator Hyper Lang v0.1
 
+Prawdziwy, działający transpilator `.hyper -> .js`, napisany w Go, bez zewnętrznych
+zależności (tylko biblioteka standardowa).
+
+## Budowanie i uruchamianie
+
+```bash
+go build -o hyperc ./cmd/hyperc
+
+./hyperc build examples/hello.hyper          # JS na stdout
+./hyperc build examples/hello.hyper -o out.js
+./hyperc run examples/hello.hyper            # transpiluje i odpala przez `node`
+```
+
+## Struktura
+
+```
+cmd/hyperc/main.go        CLI (build/run)
+internal/lexer/           lekser (tokenizacja)
+internal/ast/             węzły AST
+internal/parser/          parser rekursywny + precedence climbing
+internal/codegen/         generator kodu JS
+examples/hello.hyper      przykładowy program
+```
+
+## Co jest zaimplementowane
+
+- `let` / `const` / `let mut`, wnioskowanie typów, adnotacje
+- `fn` (blokowe i wyrażeniowe `=> expr`), parametry domyślne, `async`/`await`
+- `struct` → klasa JS, `impl` → metody na prototypie (`self` → `this`)
+- `enum` z danymi (ADT) → klasa z tagiem + statyczne fabryki wariantów
+- `match` → IIFE z if/else po `.tag` i destrukturyzacją pól wzorca
+- `if`/`else if`/`else`, `while`, `for x in iterable`
+- template literale (`` `${}` ``) — przechodzą ~1:1 do JS (ta sama składnia)
+- `?.`, `??`
+- **natywne importy JS/TS bez wrapperów**: `import { x } from "fs"` →
+  identyczny `import` w ESM, zero warstwy pośredniej
+- `declare module "..."` i `trait` — parsowane, ale nie generują kodu (erasure,
+  służą przyszłemu type checkerowi)
+
+## Czego świadomie brakuje w v0.1 (mapa drogowa)
+
+To jest **transpilator z erasure typów** (jak wczesne wersje `tsc`) — typy są
+parsowane i odrzucane, nie ma jeszcze przebiegu statycznej analizy typów.
+Pełny type checker (inferencja, sprawdzanie zgodności, generyki z ograniczeniami,
+union/intersection types) to osobny, duży komponent — logiczny następny krok,
+ale zbyt duży, by zmieścić go w tym samym poście co lekser/parser/codegen.
+
+Nie jest tu też zaimplementowane: `vira` (menedżer pakietów), obsługa
+`vira.yml`/`build.rb`, workspace, pluginy CMake/Meson, bootstrapping
+(self-hosted hyperc). To osobne narzędzia — mogę je napisać w kolejnym kroku,
+jeśli chcesz kontynuować.
+
+## Znane uproszczenia parsera
+
+- `parseTypeString` konsumuje adnotacje typów jako tekst (bez budowania AST
+  typów) — wystarcza do erasure, nie wystarczy do type-checkingu.
+- Wewnątrz warunków `if`/`while`/`match subject`/`for ... in` literały struktur
+  (`Ident { ... }`) są celowo zablokowane, żeby uniknąć konfliktu z blokiem kodu
+  (typowy problem też w innych językach, np. Rust rozwiązuje to podobnie).
