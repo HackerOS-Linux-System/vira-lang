@@ -1,1 +1,32 @@
+workspace:
+  members:
+    - vira
 
+package:
+  name: hyper-lang
+  version: 0.1.0
+  edition: "2026"
+  license: MIT
+  description: >-
+    Hyper Lang - statycznie typowany język transpilowany do JavaScript,
+    z natywną obsługą bibliotek JS/TS
+  repository: https://github.com/LegendaryOS-Linux-System/hyper-lang/
+
+build:
+  # hyperc jest kompilatorem hosta (bootstrap stage 0) - buduje się przez
+  # `go build`, nie przez samego siebie. Docelowo (patrz README, sekcja
+  # "co dalej") hyperc zostanie przepisany w Hyper Lang i będzie się
+  # budował przez własną poprzednią wersję.
+  host-compiler: go
+  host-compiler-min-version: "1.22"
+  target: es2022
+  module: esm
+
+scripts:
+  build-compiler: go build -o bin/hyperc ./src
+  test-compiler: go test ./src/...
+  build-vira: bin/hyperc build vira/src/main.hyper -o bin/vira.js
+
+dependencies: {}
+
+dev-dependencies: {}
