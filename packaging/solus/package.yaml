@@ -1,0 +1,23 @@
+name       : hyperc
+version    : "0.1.0"
+release    : 1
+source     :
+    - https://github.com/hyperlang-dev/hyper-lang/archive/refs/tags/v0.1.0.tar.gz : "SKIP"
+license    : MIT
+component  : programming.tools
+summary    : Kompilator/transpilator Hyper Lang -> JavaScript
+description: |
+    hyperc kompiluje statycznie typowany język Hyper Lang do JavaScriptu,
+    z natywną obsługą bibliotek JS/TS bez pisania wrapperów.
+
+builddeps  :
+    - golang
+
+setup      : |
+    cd src
+    export CGO_ENABLED=0
+    go build -trimpath -ldflags "-s -w -X main.version=%version" -o hyperc .
+
+install    : |
+    install -Dm00755 src/hyperc %installdir/usr/bin/hyperc
+    install -Dm00644 LICENSE %installdir/usr/share/licenses/hyperc/LICENSE
