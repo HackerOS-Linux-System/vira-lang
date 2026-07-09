@@ -1,0 +1,29 @@
+pkgname=hyperc
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Kompilator/transpilator Hyper Lang -> JavaScript"
+arch=('x86_64' 'aarch64')
+url="https://github.com/hyperlang-dev/hyper-lang"
+license=('MIT')
+depends=()
+makedepends=('go>=1.22')
+source=("hyper-lang-${pkgver}.tar.gz::https://github.com/hyperlang-dev/hyper-lang/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "hyper-lang-${pkgver}"
+  cd src
+  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${pkgver}" -o hyperc .
+}
+
+check() {
+  cd "hyper-lang-${pkgver}/src"
+  go test ./...
+}
+
+package() {
+  cd "hyper-lang-${pkgver}"
+  install -Dm755 src/hyperc "$pkgdir/usr/bin/hyperc"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/${pkgname}/LICENSE"
+  install -Dm644 README.adoc "$pkgdir/usr/share/doc/${pkgname}/README.adoc"
+}
