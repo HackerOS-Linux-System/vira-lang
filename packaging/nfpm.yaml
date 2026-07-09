@@ -1,0 +1,29 @@
+name: hyperc
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: devel
+priority: optional
+maintainer: Hyper Lang Contributors <contact@hyperlang.dev>
+description: |
+  Kompilator/transpilator Hyper Lang -> JavaScript.
+  Statycznie typowany język programowania z natywną obsługą bibliotek JS/TS.
+vendor: Hyper Lang
+homepage: https://github.com/hyperlang-dev/hyper-lang
+license: MIT
+
+contents:
+  - src: ./dist/hyperc-linux-${ARCH}/hyperc
+    dst: /usr/bin/hyperc
+    file_info:
+      mode: 0755
+  - src: ./LICENSE
+    dst: /usr/share/doc/hyperc/LICENSE
+  - src: ./README.adoc
+    dst: /usr/share/doc/hyperc/README.adoc
+
+overrides:
+  rpm:
+    depends: []
+  deb:
+    depends: []
