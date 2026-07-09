@@ -1,1 +1,178 @@
+import { load as parseYaml } from "js-yaml"
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs"
+import path from "path"
 
+// ---------------------------------------------------------------------
+// Typy domenowe
+// ---------------------------------------------------------------------
+
+struct Manifest {
+    name: string,
+    version: string,
+    dependencies: any,
+    workspaceMembers: any,
+}
+
+struct LockEntry {
+    name: string,
+    version: string,
+    resolved: string,
+}
+
+trait Reporter {
+    fn info(self, msg: string) -> void
+    fn error(self, msg: string) -> void
+}
+
+struct ConsoleReporter {
+    prefix: string,
+}
+
+impl Reporter for ConsoleReporter {
+    fn info(self, msg: string) -> void {
+        console.log(`${self.prefix} ${msg}`)
+    }
+    fn error(self, msg: string) -> void {
+        console.error(`${self.prefix} ✗ ${msg}`)
+    }
+}
+
+// ---------------------------------------------------------------------
+// Manifest (vira.yml)
+// ---------------------------------------------------------------------
+
+fn loadManifest(file: string) -> Manifest {
+    let raw = readFileSync(file, "utf8")
+    let data = parseYaml(raw)
+    return Manifest {
+        name: data.package.name,
+        version: data.package.version,
+        dependencies: data.dependencies,
+        workspaceMembers: data.workspace?.members ?? [],
+    }
+}
+
+fn discoverWorkspace(manifest: Manifest, reporter: ConsoleReporter) -> any {
+    let mut members = []
+    for member in manifest.workspaceMembers {
+        let memberManifestPath = path.join(member, "vira.yml")
+        if existsSync(memberManifestPath) {
+            members.push(loadManifest(memberManifestPath))
+        } else {
+            reporter.error(`workspace member '${member}' nie ma pliku vira.yml`)
+        }
+    }
+    return members
+}
+
+// ---------------------------------------------------------------------
+// Rozwiązywanie zależności - natywnie z rejestru npm, bez osobnego
+// ekosystemu typów: to jest właśnie "natywna obsługa libów JS" w praktyce.
+// ---------------------------------------------------------------------
+
+async fn fetchLatestVersion(pkgName: string) -> string {
+    let url = `https://registry.npmjs.org/${pkgName}/latest`
+    let res = await fetch(url)
+    if !res.ok {
+        throw new Error(`vira: nie znaleziono pakietu '${pkgName}' w rejestrze npm (HTTP ${res.status})`)
+    }
+    let data = await res.json()
+    return data.version
+}
+
+async fn resolveAll(manifest: Manifest, reporter: ConsoleReporter) -> any {
+    let mut lock = []
+    let names = Object.keys(manifest.dependencies)
+    for name in names {
+        reporter.info(`rozwiązywanie ${name}...`)
+        let version = await fetchLatestVersion(name)
+        let tarball = `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`
+        lock.push(LockEntry { name: name, version: version, resolved: tarball })
+        reporter.info(`${name}@${version} rozwiązany`)
+    }
+    return lock
+}
+
+fn writeLockfile(entries: any) {
+    let mut content = "# vira.lock - WYGENEROWANY automatycznie przez `vira install`, nie edytuj ręcznie\n\n"
+    for entry in entries {
+        content = content + `[[package]]
+name = "${entry.name}"
+version = "${entry.version}"
+resolved = "${entry.resolved}"
+
+`
+    }
+    writeFileSync("vira.lock", content)
+}
+
+// ---------------------------------------------------------------------
+// Komendy CLI
+// ---------------------------------------------------------------------
+
+async fn cmdInstall() {
+    let reporter = ConsoleReporter { prefix: "[vira]" }
+
+    if !existsSync("vira.yml") {
+        reporter.error("nie znaleziono vira.yml w bieżącym katalogu")
+        return
+    }
+
+    let manifest = loadManifest("vira.yml")
+    reporter.info(`instalacja zależności dla ${manifest.name}@${manifest.version}`)
+
+    let workspace = discoverWorkspace(manifest, reporter)
+    for member in workspace {
+        reporter.info(`workspace member: ${member.name}@${member.version}`)
+    }
+
+    let lock = await resolveAll(manifest, reporter)
+    writeLockfile(lock)
+    reporter.info(`gotowe - zapisano vira.lock (${lock.length} pakietów)`)
+}
+
+fn cmdNew(name: string) {
+    mkdirSync(name)
+    mkdirSync(`${name}/src`)
+    writeFileSync(`${name}/vira.yml`, `package:
+  name: ${name}
+  version: 0.1.0
+
+dependencies:
+`)
+    writeFileSync(`${name}/src/main.hyper`, `fn main() {
+    console.log("Hello from ${name}!")
+}
+
+main()
+`)
+    console.log(`vira: utworzono nowy projekt w ./${name}`)
+}
+
+fn printHelp() {
+    console.log("vira - menedżer pakietów Hyper Lang")
+    console.log("")
+    console.log("Użycie:")
+    console.log("  vira install        instaluje zależności z vira.yml, tworzy vira.lock")
+    console.log("  vira new <nazwa>     tworzy nowy projekt w katalogu <nazwa>")
+}
+
+async fn main() {
+    let args = process.argv.slice(2)
+    let cmd = args[0] ?? "help"
+
+    if cmd == "install" {
+        await cmdInstall()
+    } else if cmd == "new" {
+        let name = args[1]
+        if name == null {
+            console.error("vira: użycie: vira new <nazwa>")
+            return
+        }
+        cmdNew(name)
+    } else {
+        printHelp()
+    }
+}
+
+main().catch((err) => { console.error(err) })
