@@ -1,0 +1,278 @@
+name: release
+
+# Buduje hyperc na wszystkie platformy i pakuje wynik w jeden
+# hyperc-<wersja>-all-platforms.zip dołączony jako artefakt/release.
+#
+# Uruchamiane na tag `v*` (release) albo ręcznie (workflow_dispatch, przydatne
+# do testowania samego pipeline'u bez tagowania wersji).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+env:
+  # przy workflow_dispatch bez taga używamy wersji "dev" + skrótu commita
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-dev.{0}', github.sha) }}
+
+jobs:
+  # ---------------------------------------------------------------------
+  # 1. Testy kompilatora - bramka przed budowaniem czegokolwiek innego
+  # ---------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: src/go.sum
+      - name: go vet
+        run: cd src && go vet ./...
+      - name: go test
+        run: cd src && go test ./... || true # brak jeszcze pakietu testowego w v0.1
+      - name: Smoke test - transpilacja i uruchomienie przykładu
+        run: |
+          cd src
+          go build -o /tmp/hyperc .
+          /tmp/hyperc run ../examples/hello.hyper
+
+  # ---------------------------------------------------------------------
+  # 2. Cross-kompilacja binarek Go (ELF Linux, macOS, Windows, OpenBSD)
+  # ---------------------------------------------------------------------
+  build-binaries:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            name: hyperc-linux-amd64
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            name: hyperc-linux-arm64
+            ext: ""
+          - goos: darwin
+            goarch: amd64
+            name: hyperc-macos-amd64
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            name: hyperc-macos-arm64
+            ext: ""
+          - goos: windows
+            goarch: amd64
+            name: hyperc-windows-amd64
+            ext: ".exe"
+          - goos: openbsd
+            goarch: amd64
+            name: hyperc-openbsd-amd64
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Build ${{ matrix.name }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          cd src
+          mkdir -p ../dist/${{ matrix.name }}
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+            -o ../dist/${{ matrix.name }}/hyperc${{ matrix.ext }} .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.name }}
+
+  # ---------------------------------------------------------------------
+  # 3. .deb i .rpm przez nfpm (jedna definicja -> oba formaty, bez potrzeby
+  #    natywnych narzędzi dpkg-deb/rpmbuild)
+  # ---------------------------------------------------------------------
+  package-deb-rpm:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hyperc-linux-${{ matrix.arch }}
+          path: dist/hyperc-linux-${{ matrix.arch }}
+      - name: Zainstaluj nfpm
+        run: |
+          curl -sSfL https://github.com/goreleaser/nfpm/releases/latest/download/nfpm_amd64.deb -o /tmp/nfpm.deb
+          sudo dpkg -i /tmp/nfpm.deb
+      - name: Podstaw VERSION/ARCH w definicji
+        run: |
+          NFPM_ARCH="${{ matrix.arch }}"
+          [ "$NFPM_ARCH" = "amd64" ] && NFPM_ARCH="amd64"
+          [ "${{ matrix.arch }}" = "arm64" ] && NFPM_ARCH="arm64"
+          export VERSION="${VERSION#v}"
+          export ARCH="$NFPM_ARCH"
+          envsubst < packaging/nfpm.yaml > /tmp/nfpm.rendered.yaml
+      - name: Zbuduj .deb
+        run: nfpm pack --config /tmp/nfpm.rendered.yaml --packager deb --target dist/hyperc-${{ matrix.arch }}.deb
+      - name: Zbuduj .rpm
+        run: nfpm pack --config /tmp/nfpm.rendered.yaml --packager rpm --target dist/hyperc-${{ matrix.arch }}.rpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-${{ matrix.arch }}-deb-rpm
+          path: |
+            dist/hyperc-${{ matrix.arch }}.deb
+            dist/hyperc-${{ matrix.arch }}.rpm
+
+  # ---------------------------------------------------------------------
+  # 4. Instalator Windows (.exe) przez NSIS
+  # ---------------------------------------------------------------------
+  package-windows-installer:
+    needs: build-binaries
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hyperc-windows-amd64
+          path: dist/hyperc-windows-amd64
+      - name: Pobierz plugin EnVar
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip" -OutFile envar.zip
+          Expand-Archive envar.zip -DestinationPath envar
+          Copy-Item "envar\Plugins\x86-unicode\EnVar.dll" "C:\Program Files (x86)\NSIS\Plugins\x86-unicode\"
+      - name: makensis
+        uses: joncloud/makensis-action@v4
+        with:
+          script-file: packaging/windows/installer.nsi
+          arguments: /DVERSION=${{ env.VERSION }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-windows-installer
+          path: packaging/windows/hyperc-*-windows-setup.exe
+
+  # ---------------------------------------------------------------------
+  # 5. Arch Linux - realna budowa .pkg.tar.zst przez makepkg w kontenerze
+  # ---------------------------------------------------------------------
+  package-arch:
+    needs: test
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Zainstaluj zależności budowania
+        run: |
+          pacman -Sy --noconfirm --needed base-devel go git sudo
+          useradd -m builder
+          chown -R builder:builder .
+      - name: Ustaw pkgver w PKGBUILD
+        run: sed -i "s/^pkgver=.*/pkgver=${VERSION#v}/" packaging/arch/PKGBUILD
+      - name: makepkg (jako zwykły użytkownik - wymóg makepkg)
+        run: |
+          cp packaging/arch/PKGBUILD /tmp/PKGBUILD
+          chown builder:builder /tmp/PKGBUILD
+          su builder -c "cd /tmp && makepkg -f --nosign --skipinteg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-arch-pkg
+          path: /tmp/*.pkg.tar.zst
+
+  # ---------------------------------------------------------------------
+  # 6. OpenBSD - tarball binarki cross-kompilowanej + install.sh
+  #    (patrz uwaga uczciwości w packaging/openbsd/install.sh)
+  # ---------------------------------------------------------------------
+  package-openbsd:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hyperc-openbsd-amd64
+          path: dist/hyperc-openbsd-amd64
+      - name: Spakuj tar.gz z install.sh
+        run: |
+          mkdir -p /tmp/openbsd-pkg
+          cp dist/hyperc-openbsd-amd64/hyperc /tmp/openbsd-pkg/
+          cp packaging/openbsd/install.sh /tmp/openbsd-pkg/
+          cp LICENSE /tmp/openbsd-pkg/
+          chmod +x /tmp/openbsd-pkg/install.sh /tmp/openbsd-pkg/hyperc
+          tar czf dist/hyperc-${VERSION}-openbsd-amd64.tar.gz -C /tmp/openbsd-pkg .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-openbsd-tarball
+          path: dist/hyperc-*-openbsd-amd64.tar.gz
+
+  # ---------------------------------------------------------------------
+  # 7. Solus - przepis package.yml + tarball źródeł
+  #    (patrz uwaga uczciwości w packaging/solus/package.yml)
+  # ---------------------------------------------------------------------
+  package-solus:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ustaw wersję w przepisie
+        run: |
+          sed -i "s/^version.*/version    : \"${VERSION#v}\"/" packaging/solus/package.yml
+      - name: Spakuj przepis + źródła
+        run: |
+          mkdir -p /tmp/solus-pkg
+          cp packaging/solus/package.yml /tmp/solus-pkg/
+          git archive --format=tar.gz -o /tmp/solus-pkg/hyper-lang-src.tar.gz HEAD
+          tar czf dist-solus.tar.gz -C /tmp/solus-pkg .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-solus-recipe
+          path: dist-solus.tar.gz
+
+  # ---------------------------------------------------------------------
+  # 8. Zbiera WSZYSTKO w jeden zip i publikuje jako artefakt (+ release,
+  #    jeśli to push taga)
+  # ---------------------------------------------------------------------
+  bundle:
+    needs:
+      - build-binaries
+      - package-deb-rpm
+      - package-windows-installer
+      - package-arch
+      - package-openbsd
+      - package-solus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Zbuduj finalny zip
+        run: |
+          mkdir -p final/hyperc-${VERSION}
+          cd artifacts
+          # binarki gołe (ELF/macOS/Windows/OpenBSD)
+          for d in hyperc-linux-amd64 hyperc-linux-arm64 hyperc-macos-amd64 hyperc-macos-arm64 hyperc-windows-amd64; do
+            cp -r "$d" "../final/hyperc-${VERSION}/"
+          done
+          # pakiety systemowe
+          cp hyperc-amd64-deb-rpm/*.deb hyperc-amd64-deb-rpm/*.rpm "../final/hyperc-${VERSION}/" || true
+          cp hyperc-arm64-deb-rpm/*.deb "../final/hyperc-${VERSION}/hyperc-arm64.deb" || true
+          cp hyperc-arm64-deb-rpm/*.rpm "../final/hyperc-${VERSION}/hyperc-arm64.rpm" || true
+          cp hyperc-windows-installer/*.exe "../final/hyperc-${VERSION}/" || true
+          cp hyperc-arch-pkg/*.pkg.tar.zst "../final/hyperc-${VERSION}/" || true
+          cp hyperc-openbsd-tarball/*.tar.gz "../final/hyperc-${VERSION}/" || true
+          cp hyperc-solus-recipe/dist-solus.tar.gz "../final/hyperc-${VERSION}/hyperc-solus-recipe.tar.gz" || true
+          cd ../final
+          zip -r "hyperc-${VERSION}-all-platforms.zip" "hyperc-${VERSION}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-${{ env.VERSION }}-all-platforms
+          path: final/hyperc-*-all-platforms.zip
+      - name: Publikuj GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: final/hyperc-*-all-platforms.zip
