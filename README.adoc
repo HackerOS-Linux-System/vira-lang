@@ -1,61 +1,54 @@
-# hyperc — kompilator Hyper Lang v0.1
+= Hyper Lang
 
-Prawdziwy, działający transpilator `.hyper -> .js`, napisany w Go, bez zewnętrznych
-zależności (tylko biblioteka standardowa).
+Statycznie typowany język programowania transpilowany do JavaScript,
+zaprojektowany z myślą o dużych projektach.
 
-## Budowanie i uruchamianie
+== Dlaczego
 
-```bash
-go build -o hyperc ./cmd/hyperc
+TypeScript rozwiązał typowanie JS, ale zostawił dwa uporczywe problemy:
+fragmentację narzędziową (npm/yarn/pnpm, brak jednego standardu) i typowanie
+bibliotek jako osobny wszechświat (`@types/*`, `DefinitelyTyped`, wrappery
+pisane ręcznie). Hyper Lang celuje w oba naraz: jeden menedżer pakietów
+(`vira`, inspirowany Cargo) i natywną obsługę bibliotek JS/TS bez wrapperów.
 
-./hyperc build examples/hello.hyper          # JS na stdout
-./hyperc build examples/hello.hyper -o out.js
-./hyperc run examples/hello.hyper            # transpiluje i odpala przez `node`
-```
+== Struktura repozytorium
 
-## Struktura
+[source]
+----
+src/            kompilator hyperc (Go) - lekser, parser, checker, codegen
+vira/           menedżer pakietów vira, napisany w samym Hyper Lang
+examples/       przykładowe programy .hyper
+website/        wygenerowana strona projektu (patrz build.hyper)
+build.hyper     generator website/index.html
+build.rb        hook pre-buildowy pakietu (odpowiednik build.rs z Cargo)
+vira.yml        manifest workspace'u (odpowiednik Cargo.toml)
+----
 
-```
-cmd/hyperc/main.go        CLI (build/run)
-internal/lexer/           lekser (tokenizacja)
-internal/ast/             węzły AST
-internal/parser/          parser rekursywny + precedence climbing
-internal/codegen/         generator kodu JS
-examples/hello.hyper      przykładowy program
-```
+== Szybki start
 
-## Co jest zaimplementowane
+[source,bash]
+----
+cd src && go build -o ../bin/hyperc .
+cd ..
+./bin/hyperc run examples/hello.hyper
+----
 
-- `let` / `const` / `let mut`, wnioskowanie typów, adnotacje
-- `fn` (blokowe i wyrażeniowe `=> expr`), parametry domyślne, `async`/`await`
-- `struct` → klasa JS, `impl` → metody na prototypie (`self` → `this`)
-- `enum` z danymi (ADT) → klasa z tagiem + statyczne fabryki wariantów
-- `match` → IIFE z if/else po `.tag` i destrukturyzacją pól wzorca
-- `if`/`else if`/`else`, `while`, `for x in iterable`
-- template literale (`` `${}` ``) — przechodzą ~1:1 do JS (ta sama składnia)
-- `?.`, `??`
-- **natywne importy JS/TS bez wrapperów**: `import { x } from "fs"` →
-  identyczny `import` w ESM, zero warstwy pośredniej
-- `declare module "..."` i `trait` — parsowane, ale nie generują kodu (erasure,
-  służą przyszłemu type checkerowi)
+== Stan projektu (v0.1)
 
-## Czego świadomie brakuje w v0.1 (mapa drogowa)
+Zaimplementowane: lekser, parser, statyczny checker (typy prymitywne,
+zgodność traitów, wyczerpujący `match`, arność wywołań, niemutowalność),
+generator JS, CLI (`build`/`run`), obsługa błędów (`throw`/`try`/`catch`/
+`finally`), aliasy w importach (`import { load as parseYaml } from "js-yaml"`).
 
-To jest **transpilator z erasure typów** (jak wczesne wersje `tsc`) — typy są
-parsowane i odrzucane, nie ma jeszcze przebiegu statycznej analizy typów.
-Pełny type checker (inferencja, sprawdzanie zgodności, generyki z ograniczeniami,
-union/intersection types) to osobny, duży komponent — logiczny następny krok,
-ale zbyt duży, by zmieścić go w tym samym poście co lekser/parser/codegen.
+`vira/` zawiera już działającą (nie tylko zaprojektowaną) menedżerkę
+pakietów napisaną w samym Hyper Lang - parsuje `vira.yml`, rozwiązuje
+zależności przez prawdziwe zapytania do rejestru npm, zapisuje `vira.lock`,
+i potrafi wygenerować szkielet nowego projektu (`vira new <nazwa>`).
 
-Nie jest tu też zaimplementowane: `vira` (menedżer pakietów), obsługa
-`vira.yml`/`build.rb`, workspace, pluginy CMake/Meson, bootstrapping
-(self-hosted hyperc). To osobne narzędzia — mogę je napisać w kolejnym kroku,
-jeśli chcesz kontynuować.
+W budowie: pełna inferencja typów, generyki w codegenie, LSP, formatter,
+rozwiązywanie importów pomiędzy plikami `.hyper` (dziś każdy plik kompiluje
+się niezależnie), bootstrapping (hyperc napisany w samym Hyper Lang).
 
-## Znane uproszczenia parsera
+== Licencja
 
-- `parseTypeString` konsumuje adnotacje typów jako tekst (bez budowania AST
-  typów) — wystarcza do erasure, nie wystarczy do type-checkingu.
-- Wewnątrz warunków `if`/`while`/`match subject`/`for ... in` literały struktur
-  (`Ident { ... }`) są celowo zablokowane, żeby uniknąć konfliktu z blokiem kodu
-  (typowy problem też w innych językach, np. Rust rozwiązuje to podobnie).
+MIT - patrz link:LICENSE[]
