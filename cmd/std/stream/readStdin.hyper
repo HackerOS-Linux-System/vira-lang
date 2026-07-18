@@ -1,0 +1,4 @@
+import { readFileSync } from "fs"
+pub fn readStdin() -> string {
+    return readFileSync(0, "utf8")
+}
