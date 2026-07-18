@@ -16,8 +16,12 @@ builddeps  :
 setup      : |
     cd src
     export CGO_ENABLED=0
-    go build -trimpath -ldflags "-s -w -X main.version=%version" -o hyperc .
+    go build -trimpath -ldflags "-s -w -X main.version=%version" -o hyperc ./hyperc
+    go build -trimpath -ldflags "-s -w" -o hyperfmt ./hyperfmt
+    go build -trimpath -ldflags "-s -w" -o hyperls ./hyperls
 
 install    : |
     install -Dm00755 src/hyperc %installdir/usr/bin/hyperc
+    install -Dm00755 src/hyperfmt %installdir/usr/bin/hyperfmt
+    install -Dm00755 src/hyperls %installdir/usr/bin/hyperls
     install -Dm00644 LICENSE %installdir/usr/share/licenses/hyperc/LICENSE
