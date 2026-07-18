@@ -1,0 +1,143 @@
+import { execSync } from "child_process"
+import { existsSync, writeFileSync, copyFileSync, mkdirSync } from "fs"
+import { ConsoleReporter } from "./reporter.hyper"
+import { Manifest } from "./manifest.hyper"
+
+// Hyper Lang od niedawna ma prawdziwy literał obiektu (patrz README), więc
+// opcje execSync ({ stdio: "inherit" }) budujemy już natywną składnią, bez
+// wcześniejszego obejścia przez JSON.parse.
+fn stdioInherit() -> any {
+    return { stdio: "inherit" }
+}
+
+fn mkdirRecursiveOpts() -> any {
+    return { recursive: true }
+}
+
+pub fn runShell(cmd: string, reporter: ConsoleReporter) {
+    reporter.info(`$ ${cmd}`)
+    execSync(cmd, stdioInherit())
+}
+
+fn detectReleaseTarget(args: any) -> string {
+    if args.includes("--target") && args[args.indexOf("--target") + 1] == "tauri" {
+        return "tauri"
+    }
+    if existsSync("src-tauri/tauri.conf.json") || existsSync("src-tauri") {
+        return "tauri"
+    }
+    return "node-sea"
+}
+
+pub fn buildPlain(entry: string, outFile: string, reporter: ConsoleReporter) {
+    mkdirSync("dist", mkdirRecursiveOpts())
+    runShell(`hyperc ${entry} -o ${outFile}`, reporter)
+    reporter.info(`zbudowano ${outFile}`)
+}
+
+// scaffoldTauri generuje MINIMALNY, ale kompletny szkielet projektu Tauri v2
+// (Cargo.toml, tauri.conf.json, build.rs, src/main.rs), jeśli src-tauri/
+// jeszcze nie istnieje. Frontend wskazuje na dist/ (wyjście `vira build`
+// bez --release) - Tauri opakowuje ten sam JS w naturalne okno webview,
+// zamiast Node SEA.
+//
+// UWAGA UCZCIWOŚCI: ten szkielet tworzy poprawne pliki (przetestowane -
+// istnieją i mają oczekiwaną zawartość), ale samo `cargo tauri build` NIE
+// zostało uruchomione w środowisku, w którym to powstało (brak toolchainu
+// Rust/Tauri CLI w piaskownicy) - zweryfikuj na własnej maszynie.
+fn scaffoldTauri(manifest: Manifest, reporter: ConsoleReporter) {
+    if existsSync("src-tauri") {
+        return
+    }
+    reporter.info("brak src-tauri/ - generowanie minimalnego szkieletu Tauri")
+    mkdirSync("src-tauri/src", mkdirRecursiveOpts())
+    mkdirSync("src-tauri/icons", mkdirRecursiveOpts())
+
+    let cargoToml = `[package]
+name = "${manifest.name}"
+version = "${manifest.version}"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "${manifest.name}"
+path = "src/main.rs"
+`
+    writeFileSync("src-tauri/Cargo.toml", cargoToml)
+
+    let tauriConf = `{
+  "productName": "${manifest.name}",
+  "version": "${manifest.version}",
+  "identifier": "dev.hyperlang.${manifest.name}",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      { "title": "${manifest.name}", "width": 900, "height": 640 }
+    ]
+  }
+}
+`
+    writeFileSync("src-tauri/tauri.conf.json", tauriConf)
+    writeFileSync("src-tauri/build.rs", "fn main() {\n    tauri_build::build()\n}\n")
+    writeFileSync("src-tauri/src/main.rs", `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+fn main() {
+    tauri::Builder::default()
+        .run(tauri::generate_context!())
+        .expect("błąd uruchamiania aplikacji Tauri");
+}
+`)
+    reporter.info("wygenerowano src-tauri/ - dostosuj tauri.conf.json przed właściwym buildem")
+}
+
+fn buildTauriRelease(manifest: Manifest, reporter: ConsoleReporter) {
+    scaffoldTauri(manifest, reporter)
+    buildPlain("src/main.hyper", `dist/${manifest.name}.js`, reporter)
+    reporter.info("budowanie przez Tauri...")
+    runShell("npx tauri build", reporter)
+}
+
+fn buildNodeSeaRelease(entry: string, appName: string, reporter: ConsoleReporter) {
+    mkdirSync("dist", mkdirRecursiveOpts())
+    let bundlePath = "dist/bundle.js"
+    runShell(`hyperc ${entry} -o ${bundlePath}`, reporter)
+
+    let seaConfig = `{
+  "main": "${bundlePath}",
+  "output": "dist/sea-prep.blob"
+}
+`
+    writeFileSync("dist/sea-config.json", seaConfig)
+    runShell("node --experimental-sea-config dist/sea-config.json", reporter)
+
+    let outBinary = `dist/${appName}`
+    copyFileSync(process.execPath, outBinary)
+    runShell(`npx postject ${outBinary} NODE_SEA_BLOB dist/sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`, reporter)
+    reporter.info(`zbudowano samodzielną binarkę: ${outBinary}`)
+}
+
+pub async fn cmdBuild(args: any, manifest: Manifest, reporter: ConsoleReporter) {
+    let release = args.includes("--release")
+    let entry = "src/main.hyper"
+
+    if !release {
+        buildPlain(entry, `dist/${manifest.name}.js`, reporter)
+        return
+    }
+
+    let target = detectReleaseTarget(args)
+    if target == "tauri" {
+        buildTauriRelease(manifest, reporter)
+    } else {
+        buildNodeSeaRelease(entry, manifest.name, reporter)
+    }
+}
