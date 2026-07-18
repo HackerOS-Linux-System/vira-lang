@@ -1,0 +1,217 @@
+= Bootstrapping hyperc (hyperc w Hyper Lang)
+
+Ten katalog to *początek*, nie ukończony self-hosted kompilator. Zawiera
+pierwszy krok strategii "kanarka" zarekomendowanej przy pytaniu "czy Hyper
+Lang jest gotowy na bootstrapping": zamiast przepisywać cały kompilator
+naraz, zaczynamy od najmniejszego, samodzielnie testowalnego kawałka -
+leksera - i weryfikujemy go względem prawdziwego leksera w Go, zanim
+zainwestujemy w parser/checker/codegen.
+
+== Status
+
+* `src/lexer.hyper` (**v0.3**) - działający lekser Hyper Lang napisany W
+  Hyper Lang. Tokenizuje identyfikatory, słowa kluczowe (te same 35 co
+  `token.go` w Go), liczby całkowite, zmiennoprzecinkowe i w notacji
+  wykładniczej (`1e10`, `1.5e-3`), stringi w obu wariantach cudzysłowu z
+  dekodowanymi sekwencjami ucieczki (`\n`, `\t`, `\r`, `\\`, `\"`, itd.),
+  template literals (przekazywane 1:1 poza sekwencjami ucieczki - `${}`
+  NIE jest parsowane jako osadzone wyrażenia, tak samo jak w Go),
+  komentarze, operatory jedno-, dwu- i trzyznakowe (`==`, `!=`, `<=`,
+  `>=`, `->`, `=>`, `&&`, `||`, `??`, `?.`, `+=`, `-=`, `*=`, `/=`,
+  `...`). Skompilowany przez `hyperc` i przetestowany na realnym kodzie
+  (`src/lexer_test.hyper`).
+* `src/parser.hyper` - **drugi kanarek**: parser wyrażeń arytmetycznych
+  (recursive descent + precedence climbing), budujący na leksze powyżej.
+  Przetestowany (`src/parser_test.hyper`) dokładnie na tym samym
+  przypadku, który złapał realny bug w `hyperc` (gubienie nawiasów przy
+  `2 + 3 * 4` vs `(2 + 3) * 4`).
+* `src/stmt_parser.hyper` (**v0.3**) - **trzeci kanarek**: parser
+  instrukcji i deklaracji, budujący na lekserze v0.3. Pokrywa
+  `let`/`mut` (destrukturyzacja obiektowa I tablicowa),
+  `return`, `if`/`else`/`else if`, `while`, `for..in`,
+  `try`/`catch`/`finally`, `throw`, `break`/`continue`, bloki, `fn`/
+  `async fn` (z generykami erasowanymi, typowanymi parametrami i typami
+  funkcyjnymi w adnotacjach), `struct`, `enum` (z wariantami niosącymi
+  dane), `impl Trait for Type`/`impl Type`, `trait`,
+  `import { ... } from "..."`, `declare module "..." { ... }`, `pub` na
+  poziomie modułu, oraz w wyrażeniach: `match`+wzorce, `MemberExpr`/
+  `OptionalMember`/`IndexExpr` (`a.b.c`, `a?.b`, `arr[i]` - `.` i `?.`
+  jako ODRĘBNE węzły AST), literały tablicowe, struct i obiektowe
+  (`{ x: 1 }`), spread (`...xs`) w tablicach/wywołaniach, `new X(...)`,
+  `await`, operatory unarne, `null`, przypisanie prawostronnie łączne.
+  Przetestowany (`src/stmt_parser_test.hyper`) - 29 przypadków.
+  Świadomie NIE pokrywa jeszcze: prawdziwej semantyki "krótkiego
+  spięcia" dla `?.` (to zadanie codegenu), destrukturyzacji
+  zagnieżdżonej/w parametrach funkcji - pełna lista w komentarzu "Czego
+  tu brakuje" na końcu pliku.
+* `src/checker.hyper` - **czwarty kanarek**: pierwszy, który dotyka
+  braku natywnej hashmapy w stdlib - tablice symboli zbudowane na
+  interopie z JS `Map`. Sprawdza: nieznane identyfikatory, arność
+  wywołań funkcji (pomijana gdy w wywołaniu jest spread), przypisanie do
+  `let` bez `mut`, nieznane typy struct w literałach, nieznane nazwy
+  wariantów enuma używane w `match` (uproszczenie: sprawdzane globalnie,
+  nie względem konkretnego typu subjectu - patrz zastrzeżenie w
+  nagłówku pliku), podwójne deklaracje funkcji/struct na poziomie
+  modułu. Świadomie NIE sprawdza: zgodności typów wartości, wyczerpania
+  `match`, zgodności traitów, `pub` między plikami, duplikatów zmiennych
+  w tym samym zasięgu - pełna lista w "Czego tu brakuje" na końcu pliku.
+  Przetestowany (`src/checker_test.hyper`) - 10 przypadków (w tym
+  regresyjne "nie powinno być błędu").
+* `src/codegen.hyper` - **piąty kanarek**: generator JS z tego samego
+  AST. Kluczowe decyzje projektowe (udokumentowane w nagłówku pliku):
+  `struct` -> klasa JS (żeby `impl`/metody działały przez zwykły
+  mechanizm prototypów, bez inferencji typów), `enum` -> obiekt z
+  fabrykami (konstrukcja wariantu to zwykły `Member`+`Call`, bez
+  specjalnego przypadku), `match` -> IIFE sprawdzające `.tag` z
+  bindingami mapowanymi POZYCYJNIE na pola (to samo uproszczenie co w
+  checkerze - rejestr globalny, nie per-enum), `?.` mapuje się 1:1 na
+  natywny JS `?.` (jedyne miejsce w bootstrapie, gdzie luka z
+  poprzedniego kanarka znika bez dodatkowej pracy). Przetestowany
+  (`src/codegen_test.hyper`) - dokładne dopasowanie dla prostych
+  przypadków, sprawdzanie kluczowych fragmentów dla `match`/`struct`+
+  `impl` (żeby test sam nie był źródłem pomyłek przy ręcznym
+  wyliczaniu długiego oczekiwanego stringa).
+* `src/bundler.hyper` - **szósty kanarek**: rozwiązywanie importów
+  wielu plików (DFS, sortowanie topologiczne, wykrywanie cykli) i
+  spięcie WSZYSTKICH poprzednich kanarków w jeden pipeline
+  (`bundleCheckAndGenerate`: bundle -> check -> codegen) - pierwszy
+  moment w bootstrapie, w którym lekser, parser, checker i codegen
+  działają razem, nie w izolacji. `files` (mapowanie ścieżka -> źródło)
+  jest dostarczane z zewnątrz, nie czytane z dysku - testuje wyłącznie
+  ALGORYTM, nie I/O (patrz "Czego tu brakuje"). Przetestowany
+  (`src/bundler_test.hyper`) - poprawne łączenie, wykrywanie cykli,
+  brakujący plik, i błąd checkera widoczny PO zbundlowaniu.
+
+== Dlaczego lekser i parser wyrażeń jako pierwsze
+
+Lekser jest bezstanowy względem reszty kompilatora. Parser wyrażeń
+arytmetycznych to najmniejszy fragment PRAWDZIWEGO parsera (ma
+precedencję, rekurencję, drzewo wynikowe) bez wciągania całej gramatyki
+deklaracji - następny, bezpieczny stopień trudności po samym lekserze.
+
+== Czego się nauczyliśmy pisząc je
+
+* Destrukturyzacja i literały obiektu (dodane w tej samej sesji co ten
+  plik) były rzeczywiście potrzebne - kod bez nich byłby zauważalnie
+  bardziej rozwlekły.
+* Brak natywnego typu znakowego (`char`) - operujemy na łańcuchach
+  jednoznakowych przez `s.charAt(i)` / indeksowanie `s[i]`, co działa,
+  ale nie jest tak ergonomiczne jak `rune` w Go.
+* Rekurencyjne odczytywanie znak-po-znaku z mutowalnym indeksem (`let mut
+  pos`) działa dobrze - `self` + `impl` + mutowalne pola struktury
+  wystarczają do zaimplementowania czegoś w stylu klasy `Lexer` z Go 1:1.
+* `while true { ... break ... }` jako pętla parsera (`parseExpr`) działa
+  dokładnie tak jak w Go - nie było potrzeby żadnej specjalnej składni
+  pętli nieskończonej.
+* Enumy z `.tag`/polami jako pozycyjne argumenty (`ExprNode.Binary(op,
+  left, right)`) mapują się naturalnie na węzły AST - ergonomia bardzo
+  zbliżona do tego, jak wygląda prawdziwy `internal/ast` w Go.
+
+=== Dopisane przy `stmt_parser.hyper` v0.2 (match, member/index, impl/trait, generyki, import/pub)
+
+* Jeden dodatkowy parametr (`noStruct: bool`) przewleczony przez
+  `parseExpr`/`parseUnary`/`parsePostfix`/`parsePrimaryAtom` okazał się
+  wystarczający, żeby rozstrzygnąć całą klasę niejednoznaczności
+  `Ident {` (literał struct vs. początek bloku po `if`/`while`/`for..in`/
+  `match`) - dokładnie ten sam mechanizm co `parseExprNoStruct` w Go, ale
+  jako jawny parametr zamiast osobnej funkcji. Nie trzeba było
+  wprowadzać żadnego dodatkowego lookaheadu.
+* `self` jako słowo kluczowe (dodane w lekserze v0.2) miało efekt
+  uboczny, którego nie przewidzieliśmy przy pisaniu leksera: złamało
+  parsowanie parametrów metod (`fn describe(self)`) i wyrażeń w ich
+  ciele (`self.radius`), bo oba miejsca zakładały że nazwa to zawsze
+  `Ident`. Naprawione punktowo (`expectParamName`, osobna gałąź w
+  `parsePrimaryAtom`) - ale to konkretny przykład na to, że rozszerzenie
+  warstwy niższej (leksera) może cicho złamać warstwę wyższą (parser) w
+  miejscu, które nie jest oczywiste z samej listy dodanych tokenów.
+  Warto to sprawdzać systematycznie przy każdym kolejnym słowie
+  kluczowym, nie tylko przy `self`.
+* Priorytety operatorów jako łańcuch `if` (nie mapa) dobrze się
+  skalowały nawet po dodaniu przypisań i `%` - 8 poziomów priorytetu to
+  wciąż nieuciążliwe. Ten sam wniosek co przy v0.1: to tablica symboli w
+  checkerze będzie właściwym testem na to, czy brak natywnej hashmapy
+  jest problemem, nie parser.
+* `Expr`/`Stmt` jako jeden płaski enum każdy (14 wariantów `Stmt`, 14
+  wariantów `Expr`) wciąż się broni czytelnością - `node.tag == "..."`
+  w `stmtToString`/`exprToString` skaluje się liniowo i jest łatwe do
+  przeszukania, ale przy czwartym kanarku (checker, który będzie musiał
+  odwiedzać te same węzły z inną logiką) warto rozważyć, czy nie
+  przenieść dispatchu po `tag` do wspólnej, jednej funkcji `walk`,
+  zamiast każdorazowo pisać nowy łańcuch `if node.tag == ...`.
+
+=== Dopisane przy `checker.hyper` (czwarty kanarek)
+
+* Zdecydowaliśmy się na interop z JS `Map` zamiast czekać na natywną
+  hashmapę w stdlib - `new Map()` jako wartość zwracana z funkcji
+  zwracającej `any`, plus `.has`/`.get`/`.set` jako zwykłe wywołania
+  metod, działa bez żadnych sztuczek. To potwierdza wcześniejsze
+  przewidywanie z v0.1/v0.2: brak natywnej hashmapy jest niewygodny, ale
+  NIE jest blokerem - jest obejściem o koszcie czytelności (dwa razy
+  trzeba pamiętać, że `scope.vars` to `Map`, nie zwykły obiekt), nie
+  koszcie wykonalności.
+* Rejestracja deklaracji najwyższego poziomu w OSOBNYM przebiegu
+  (`registerTopLevel` PRZED właściwym sprawdzaniem ciał) okazała się
+  konieczna, nie kosmetyczna - bez tego `fn main() { helper() }`
+  zadeklarowane PRZED `fn helper() { ... }` fałszywie zgłaszałoby
+  "nieznany identyfikator", mimo że taki porządek deklaracji jest w
+  pełni poprawny.
+* Sprawdzanie wariantów enuma "globalnie" (patrz zastrzeżenie w
+  nagłówku `checker.hyper`) było świadomym kompromisem - w pełni
+  poprawna wersja wymaga wiązania konkretnego `match` z konkretnym
+  typem, czyli inferencji typów. Zdecydowaliśmy się na słabszą, ale
+  wciąż użyteczną wersję (łapie literówki), zamiast czekać na pełną
+  inferencję - podobna logika co przy generykach z erasure w parserze.
+
+=== Dopisane przy `codegen.hyper` (piąty kanarek) i `bundler.hyper` (szósty kanarek)
+
+* Decyzja "struct -> klasa JS" okazała się kluczowa dla całej reszty:
+  bez niej `impl`/metody nie miałyby SPOSOBU działania bez inferencji
+  typów (żeby wiedzieć, czyją metodę wywołać na podstawie samego
+  wywołania `x.method()`, trzeba by znać typ `x`). Wybierając reprezentację
+  runtime'ową (klasa) tak, żeby JS-owy prototype dispatch robił tę
+  pracę ZA nas, uniknęliśmy potrzeby czwartego, znacznie większego
+  kroku w checkerze.
+- Dokładnie ta sama "globalna, nie per-typ" uproszczona reprezentacja
+  wariantów enuma, którą wybraliśmy w checkerze (rejestr płaski), musiała
+  zostać POWTÓRZONA w codegenie (`registerEnums`) do mapowania
+  bindingów wzorca na pola - konkretny przykład na to, że decyzja
+  projektowa podjęta w jednym kanarku nie zostaje w nim odizolowana,
+  tylko przecieka do każdego kolejnego kanarka, który dotyka tego
+  samego węzła AST.
+* `bundleCheckAndGenerate` (bundle -> check -> codegen) to pierwszy raz
+  w całym bootstrapie, kiedy wszystkie cztery poprzednie kanarki
+  faktycznie ZADZIAŁAŁY RAZEM na jednym wejściu, a nie tylko osobno w
+  swoich testach - to jest właściwy test integracyjny całej dotychczasowej
+  pracy, nie tylko kolejny przyrost.
+* `files` jako mapa dostarczana z zewnątrz (zamiast czytania z dysku)
+  pozwoliło przetestować CAŁY algorytm bundlera (DFS, cykle) bez
+  dotykania `std/fs` - ale to oznacza, że integracja z prawdziwym
+  systemem plików wciąż jest osobnym, nieprzetestowanym krokiem.
+
+== Następny krok (nie zrobiony tutaj)
+
+* **Integracja z `std/fs`** - `bundler.hyper` działa dziś tylko na
+  danych dostarczonych w pamięci; podłączenie `std/fs/readText.hyper` +
+  normalizacja ścieżek (`../`, względem katalogu importującego pliku)
+  to najkrótsza droga do czegoś, co dałoby się faktycznie uruchomić na
+  `examples/`.
+* **Wyczerpywalność `match`** w checkerze - pierwszy prawdziwy krok w
+  stronę inferencji typów (trzeba wiązać subject z konkretnym typem
+  `enum`, nie tylko sprawdzać istnienie nazwy wariantu globalnie). Ma
+  też bezpośredni efekt w codegenie: dziś niedopasowany `match` rzuca
+  wyjątkiem dopiero w RUNTIME (patrz decyzja projektowa 3 w
+  `codegen.hyper`).
+* **Zgodność traitów** (`impl Trait for Type` faktycznie implementuje
+  wszystkie metody traitu) - nie wymaga inferencji typów, tylko
+  porównania dwóch już zarejestrowanych list metod.
+* **Import selektywny w bundlerze** - dziś każdy zaimportowany plik
+  wnosi WSZYSTKIE swoje deklaracje (`pub` i nie-`pub`) do połączonego
+  programu, bez rozróżnienia - patrz "Czego tu brakuje" w
+  `bundler.hyper`.
+* Domknięcie pozostałych luk w `stmt_parser.hyper` (patrz "Czego tu
+  brakuje" na końcu pliku) - żadna nie blokuje niczego z powyższych,
+  więc niższy priorytet.
+* **Realne uruchomienie** - cała ta praca (kanarki 1-6) była
+  weryfikowana WYŁĄCZNIE ręcznym śledzeniem logiki, bez dostępu do
+  Go/sieci w środowisku, w którym powstała. To pozostaje najpilniejszym
+  krokiem przed czymkolwiek innym z powyższej listy.
