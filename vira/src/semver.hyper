@@ -1,0 +1,70 @@
+pub struct Version {
+    major: i32,
+    minor: i32,
+    patch: i32,
+}
+
+pub fn parseVersion(v: string) -> Version {
+    let clean = v.replace("v", "")
+    let parts = clean.split(".")
+    return Version {
+        major: parseInt(parts[0] ?? "0"),
+        minor: parseInt(parts[1] ?? "0"),
+        patch: parseInt(parts[2] ?? "0"),
+    }
+}
+
+// compareVersions zwraca <0 gdy a<b, 0 gdy równe, >0 gdy a>b.
+pub fn compareVersions(a: Version, b: Version) -> i32 {
+    if a.major != b.major {
+        return a.major - b.major
+    }
+    if a.minor != b.minor {
+        return a.minor - b.minor
+    }
+    return a.patch - b.patch
+}
+
+// satisfies sprawdza, czy konkretna wersja `v` mieści się w zakresie `range`.
+pub fn satisfies(v: string, range: string) -> bool {
+    if range == "*" || range == "latest" || range == "" {
+        return true
+    }
+    let ver = parseVersion(v)
+
+    if range.startsWith("^") {
+        let base = parseVersion(range.slice(1))
+        if base.major > 0 {
+            return ver.major == base.major && compareVersions(ver, base) >= 0
+        }
+        if base.minor > 0 {
+            return ver.major == 0 && ver.minor == base.minor && compareVersions(ver, base) >= 0
+        }
+        return ver.major == 0 && ver.minor == 0 && ver.patch == base.patch
+    }
+
+    if range.startsWith("~") {
+        let base = parseVersion(range.slice(1))
+        return ver.major == base.major && ver.minor == base.minor && compareVersions(ver, base) >= 0
+    }
+
+    let base = parseVersion(range)
+    return compareVersions(ver, base) == 0
+}
+
+// maxSatisfying zwraca NAJWYŻSZĄ wersję z `versions` spełniającą `range`,
+// albo null gdy żadna nie pasuje.
+pub fn maxSatisfying(versions: any, range: string) -> string {
+    let mut best = null
+    let mut bestParsed = null
+    for v in versions {
+        if satisfies(v, range) {
+            let parsed = parseVersion(v)
+            if bestParsed == null || compareVersions(parsed, bestParsed) > 0 {
+                best = v
+                bestParsed = parsed
+            }
+        }
+    }
+    return best
+}
