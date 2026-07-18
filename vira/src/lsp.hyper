@@ -1,0 +1,9 @@
+import { spawnSync } from "child_process"
+
+fn stdioInheritOpts() -> any {
+    return { stdio: "inherit" }
+}
+
+pub fn cmdLsp() {
+    spawnSync("hyperls", [], stdioInheritOpts())
+}
