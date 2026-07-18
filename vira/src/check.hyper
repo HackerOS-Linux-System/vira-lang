@@ -1,0 +1,7 @@
+import { ConsoleReporter } from "./reporter.hyper"
+import { runShell } from "./build.hyper"
+
+pub fn cmdCheck(reporter: ConsoleReporter) {
+    let entry = "src/main.hyper"
+    runShell(`hyperc ${entry} --check`, reporter)
+}
