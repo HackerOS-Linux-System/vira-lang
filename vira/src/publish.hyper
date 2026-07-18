@@ -1,0 +1,43 @@
+import { writeFileSync } from "fs"
+import { ConsoleReporter } from "./reporter.hyper"
+import { Manifest } from "./manifest.hyper"
+import { runShell, buildPlain } from "./build.hyper"
+
+fn writePackageJson(manifest: Manifest) {
+    let pkg = `{
+  "name": "${manifest.name}",
+  "version": "${manifest.version}",
+  "type": "module",
+  "main": "dist/${manifest.name}.js"
+}
+`
+    writeFileSync("package.json", pkg)
+}
+
+fn writeJsrJson(manifest: Manifest) {
+    let pkg = `{
+  "name": "${manifest.name}",
+  "version": "${manifest.version}",
+  "exports": "./dist/${manifest.name}.js"
+}
+`
+    writeFileSync("jsr.json", pkg)
+}
+
+pub async fn cmdPublish(args: any, manifest: Manifest, reporter: ConsoleReporter) {
+    let toJsr = args.includes("--registry") && args[args.indexOf("--registry") + 1] == "jsr"
+    let toAll = args.includes("--registry") && args[args.indexOf("--registry") + 1] == "all"
+
+    buildPlain("src/main.hyper", `dist/${manifest.name}.js`, reporter)
+
+    if toJsr || toAll {
+        writeJsrJson(manifest)
+        reporter.info("publikacja do JSR...")
+        runShell("npx jsr publish", reporter)
+    }
+    if !toJsr || toAll {
+        writePackageJson(manifest)
+        reporter.info("publikacja do npm...")
+        runShell("npm publish", reporter)
+    }
+}
