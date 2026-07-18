@@ -1,0 +1,3 @@
+pub fn reduceArray(items: any, fn_: any, initial: any) -> any {
+    return items.reduce(fn_, initial)
+}
