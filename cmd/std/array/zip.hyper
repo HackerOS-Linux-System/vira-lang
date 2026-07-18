@@ -1,0 +1,9 @@
+pub fn zip(a: any, b: any) -> any {
+    let mut result = []
+    let mut i = 0
+    while i < a.length && i < b.length {
+        result.push([a[i], b[i]])
+        i = i + 1
+    }
+    return result
+}
