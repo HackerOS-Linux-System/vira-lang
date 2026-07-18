@@ -1,0 +1,3 @@
+pub fn parseUrl(u: string) -> any {
+    return new URL(u)
+}
