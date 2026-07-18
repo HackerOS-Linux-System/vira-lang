@@ -1,0 +1,17 @@
+pub trait Reporter {
+    fn info(self, msg: string) -> void
+    fn error(self, msg: string) -> void
+}
+
+pub struct ConsoleReporter {
+    prefix: string,
+}
+
+impl Reporter for ConsoleReporter {
+    fn info(self, msg: string) -> void {
+        console.log(`${self.prefix} ${msg}`)
+    }
+    fn error(self, msg: string) -> void {
+        console.error(`${self.prefix} ✗ ${msg}`)
+    }
+}
