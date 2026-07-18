@@ -1,0 +1,45 @@
+import { load as parseYamlText, dump as dumpYamlText } from "js-yaml"
+import { readFileSync, writeFileSync, existsSync } from "fs"
+import path from "path"
+import { ConsoleReporter } from "./reporter.hyper"
+
+pub struct Manifest {
+    name: string,
+    version: string,
+    dependencies: any,
+    workspaceMembers: any,
+}
+
+// loadManifestRaw zwraca surową strukturę YAML (do modyfikacji i
+// zapisania z powrotem - np. `vira install <pkg>` dopisujące zależność).
+pub fn loadManifestRaw(file: string) -> any {
+    let raw = readFileSync(file, "utf8")
+    return parseYamlText(raw)
+}
+
+pub fn saveManifestRaw(file: string, data: any) {
+    writeFileSync(file, dumpYamlText(data))
+}
+
+pub fn loadManifest(file: string) -> Manifest {
+    let data = loadManifestRaw(file)
+    return Manifest {
+        name: data.package.name,
+        version: data.package.version,
+        dependencies: data.dependencies,
+        workspaceMembers: data.workspace?.members ?? [],
+    }
+}
+
+pub fn discoverWorkspace(manifest: Manifest, reporter: ConsoleReporter) -> any {
+    let mut members = []
+    for member in manifest.workspaceMembers {
+        let memberManifestPath = path.join(member, "vira.yml")
+        if existsSync(memberManifestPath) {
+            members.push(loadManifest(memberManifestPath))
+        } else {
+            reporter.error(`workspace member '${member}' nie ma pliku vira.yml`)
+        }
+    }
+    return members
+}
