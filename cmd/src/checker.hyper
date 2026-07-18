@@ -1,0 +1,268 @@
+import { parseProgram } from "./stmt_parser.hyper"
+
+struct CheckError {
+    message: string,
+    line: i32,
+}
+
+pub struct Checker {
+    errors: any,       // JS Array<CheckError>
+    functions: any,    // JS Map<string, { arity: i32 }>
+    structs: any,       // JS Map<string, true>
+    enumVariants: any,  // JS Map<string, true> - patrz zastrzeżenie w komentarzu pliku
+}
+
+impl Checker {
+    fn error(self, message: string) {
+        self.errors.push(CheckError { message: message, line: 0 })
+    }
+
+    fn newScope(self, parent: any) -> any {
+        return { vars: new Map(), parent: parent }
+    }
+
+    fn defineVar(self, scope: any, name: string, mutable: bool) {
+        scope.vars.set(name, { mutable: mutable })
+    }
+
+    fn lookupVar(self, scope: any, name: string) -> any {
+        let mut s = scope
+        while s != null {
+            if s.vars.has(name) {
+                return s.vars.get(name)
+            }
+            s = s.parent
+        }
+        return null
+    }
+
+    // --- pierwszy przebieg: rejestracja deklaracji najwyższego poziomu,
+    // żeby wywołania funkcji i literały struct dało się sprawdzić nawet
+    // gdy odwołują się do czegoś zadeklarowanego NIŻEJ w pliku.
+    fn registerTopLevel(self, program: any) {
+        for stmt in program {
+            if stmt.tag == "FnDecl" {
+                if self.functions.has(stmt.name) {
+                    self.error(`funkcja '${stmt.name}' zadeklarowana ponownie`)
+                } else {
+                    self.functions.set(stmt.name, { arity: stmt.params.length })
+                }
+            } else if stmt.tag == "StructDecl" {
+                if self.structs.has(stmt.name) {
+                    self.error(`struct '${stmt.name}' zadeklarowany ponownie`)
+                } else {
+                    self.structs.set(stmt.name, true)
+                }
+            } else if stmt.tag == "EnumDecl" {
+                for variant in stmt.variants {
+                    self.enumVariants.set(variant.name, true)
+                }
+            }
+        }
+    }
+
+    pub fn checkProgram(self, program: any) -> any {
+        self.registerTopLevel(program)
+        let rootScope = self.newScope(null)
+        for stmt in program {
+            self.checkStmt(stmt, rootScope)
+        }
+        return self.errors
+    }
+
+    fn checkBlockStmts(self, stmts: any, scope: any) {
+        for s in stmts {
+            self.checkStmt(s, scope)
+        }
+    }
+
+    fn checkStmt(self, stmt: any, scope: any) {
+        if stmt.tag == "Let" {
+            self.checkExpr(stmt.value, scope)
+            self.defineVar(scope, stmt.name, stmt.mutable)
+        } else if stmt.tag == "LetDestructure" {
+            self.checkExpr(stmt.value, scope)
+            for name in stmt.names {
+                self.defineVar(scope, name, false)
+            }
+        } else if stmt.tag == "ExprStmt" {
+            self.checkExpr(stmt.value, scope)
+        } else if stmt.tag == "Return" {
+            if stmt.value != null {
+                self.checkExpr(stmt.value, scope)
+            }
+        } else if stmt.tag == "If" {
+            self.checkExpr(stmt.cond, scope)
+            self.checkStmt(stmt.thenBlock, scope)
+            if stmt.elseBlock != null {
+                self.checkStmt(stmt.elseBlock, scope)
+            }
+        } else if stmt.tag == "While" {
+            self.checkExpr(stmt.cond, scope)
+            self.checkStmt(stmt.body, scope)
+        } else if stmt.tag == "ForIn" {
+            self.checkExpr(stmt.iterable, scope)
+            let loopScope = self.newScope(scope)
+            self.defineVar(loopScope, stmt.varName, false)
+            self.checkBlockStmts(stmt.body.stmts, loopScope)
+        } else if stmt.tag == "Block" {
+            let blockScope = self.newScope(scope)
+            self.checkBlockStmts(stmt.stmts, blockScope)
+        } else if stmt.tag == "Throw" {
+            self.checkExpr(stmt.value, scope)
+        } else if stmt.tag == "Try" {
+            self.checkStmt(stmt.block, scope)
+            if stmt.catchBlock != null {
+                let catchScope = self.newScope(scope)
+                if stmt.catchParam != "" {
+                    self.defineVar(catchScope, stmt.catchParam, false)
+                }
+                self.checkBlockStmts(stmt.catchBlock.stmts, catchScope)
+            }
+            if stmt.finallyBlock != null {
+                self.checkStmt(stmt.finallyBlock, scope)
+            }
+        } else if stmt.tag == "FnDecl" {
+            let fnScope = self.newScope(scope)
+            for param in stmt.params {
+                self.defineVar(fnScope, param.name, false)
+            }
+            self.checkBlockStmts(stmt.body.stmts, fnScope)
+        } else if stmt.tag == "ImplDecl" {
+            for m in stmt.methods {
+                self.checkStmt(m, scope)
+            }
+        }
+        // StructDecl/EnumDecl/TraitDecl/ImportStmt/DeclareModule/
+        // Break/Continue - brak treści wymagającej sprawdzenia.
+    }
+
+    fn checkExpr(self, node: any, scope: any) {
+        if node.tag == "Ident" {
+            if node.name != "self" && self.lookupVar(scope, node.name) == null && !self.functions.has(node.name) {
+                self.error(`nieznany identyfikator '${node.name}'`)
+            }
+        } else if node.tag == "Unary" {
+            self.checkExpr(node.operand, scope)
+        } else if node.tag == "Await" {
+            self.checkExpr(node.operand, scope)
+        } else if node.tag == "Spread" {
+            self.checkExpr(node.value, scope)
+        } else if node.tag == "Binary" {
+            self.checkExpr(node.left, scope)
+            self.checkExpr(node.right, scope)
+            if self.isAssignOp(node.op) && node.left.tag == "Ident" {
+                let info = self.lookupVar(scope, node.left.name)
+                if info != null && !info.mutable {
+                    self.error(`przypisanie do niemutowalnej zmiennej '${node.left.name}' (zadeklarowanej bez 'mut')`)
+                }
+            }
+        } else if node.tag == "Call" {
+            self.checkExpr(node.callee, scope)
+            for arg in node.args {
+                self.checkExpr(arg, scope)
+            }
+            if node.callee.tag == "Ident" && self.functions.has(node.callee.name) {
+                let sig = self.functions.get(node.callee.name)
+                let hasSpread = self.argsContainSpread(node.args)
+                if !hasSpread && node.args.length != sig.arity {
+                    self.error(`'${node.callee.name}' oczekuje ${sig.arity} argumentów, otrzymano ${node.args.length}`)
+                }
+            }
+        } else if node.tag == "New" {
+            self.checkExpr(node.callee, scope)
+        } else if node.tag == "Member" || node.tag == "OptionalMember" {
+            self.checkExpr(node.object, scope)
+        } else if node.tag == "Index" {
+            self.checkExpr(node.object, scope)
+            self.checkExpr(node.index, scope)
+        } else if node.tag == "ArrayLit" {
+            for el in node.elements {
+                self.checkExpr(el, scope)
+            }
+        } else if node.tag == "ObjectLit" {
+            for f in node.fields {
+                self.checkExpr(f.value, scope)
+            }
+        } else if node.tag == "StructLit" {
+            if !self.structs.has(node.typeName) {
+                self.error(`nieznany typ struct '${node.typeName}'`)
+            }
+            for f in node.fields {
+                self.checkExpr(f.value, scope)
+            }
+        } else if node.tag == "Match" {
+            self.checkExpr(node.subject, scope)
+            for arm in node.arms {
+                let armScope = self.newScope(scope)
+                if arm.pattern.variant != "" {
+                    if !self.enumVariants.has(arm.pattern.variant) {
+                        self.error(`nieznany wariant enuma '${arm.pattern.variant}' we wzorcu`)
+                    }
+                    for binding in arm.pattern.bindings {
+                        self.defineVar(armScope, binding, false)
+                    }
+                }
+                if arm.body.tag == "Block" {
+                    self.checkBlockStmts(arm.body.stmts, armScope)
+                } else {
+                    self.checkExpr(arm.body, armScope)
+                }
+            }
+        }
+        // NumberLit/StringLit/BoolLit/NullLit - brak treści do sprawdzenia.
+    }
+
+    fn isAssignOp(self, op: string) -> bool {
+        return op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/="
+    }
+
+    fn argsContainSpread(self, args: any) -> bool {
+        for arg in args {
+            if arg.tag == "Spread" {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+// check - punkt wejścia: parsuje źródło i zwraca tablicę CheckError
+// (pustą, jeśli program jest poprawny wg reguł opisanych w komentarzu
+// pliku).
+pub fn check(source: string) -> any {
+    let program = parseProgram(source)
+    return checkProgramNodes(program)
+}
+
+// checkProgramNodes - jak check(), ale dla JUŻ sparsowanego programu
+// (tablicy Stmt) - używane przez bundler.hyper po połączeniu wielu
+// plików w jedno drzewo, żeby nie parsować tego samego kodu dwa razy.
+pub fn checkProgramNodes(program: any) -> any {
+    let c = Checker { errors: [], functions: new Map(), structs: new Map(), enumVariants: new Map() }
+    return c.checkProgram(program)
+}
+
+// --- Czego tu brakuje (świadomie, nie przez przeoczenie) ---------------
+//
+// Względem checker.go (881 linii) w Go:
+//   - Prawdziwa unifikacja/inferencja typów - dziś sprawdzane jest
+//     wyłącznie ISTNIENIE nazw (zmienna/funkcja/struct/wariant), nie
+//     ZGODNOŚĆ typów wartości z adnotacjami
+//   - Wyczerpywalność `match` (czy każdy wariant enuma ma odpowiadającą
+//     gałąź) - wymaga wiązania konkretnego enuma z konkretnym `match`,
+//     czego ten kanarek nie robi (patrz zastrzeżenie na górze pliku)
+//   - Zgodność traitów (`checkTraitConformance` w Go) - czy `impl Trait
+//     for Type` faktycznie implementuje wszystkie metody traitu z
+//     poprawnymi sygnaturami
+//   - Egzekwowanie `pub` między plikami/modułami - `bundler.hyper`
+//     istnieje i łączy pliki w jeden program, ale `checkProgramNodes`
+//     wciąż nie rozróżnia deklaracji `pub` od prywatnych (patrz "Czego
+//     tu brakuje" w bundler.hyper, punkt o imporcie selektywnym)
+//   - Sprawdzanie duplikatów zmiennych W TYM SAMYM zasięgu (dziś
+//     ponowne `let x` w tym samym bloku po prostu nadpisuje wpis w
+//     Map - nie jest to błąd, powinno być)
+// Każdy z powyższych to samodzielny, weryfikowalny przyrost - najniższe
+// ryzyko/najwyższa wartość ma prawdopodobnie duplikat-w-zasięgu (małe,
+// izolowane), potem wyczerpywalność `match` (wymaga już śledzenia typu
+// subjectu - pierwszy prawdziwy krok w stronę inferencji typów).
