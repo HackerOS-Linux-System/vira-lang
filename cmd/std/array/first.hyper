@@ -1,0 +1,6 @@
+pub fn first(items: any) -> any {
+    return items[0]
+}
+pub fn last(items: any) -> any {
+    return items[items.length - 1]
+}
