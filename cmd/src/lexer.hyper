@@ -1,0 +1,247 @@
+enum TokenKind {
+    Ident(value: string),
+    Keyword(value: string),
+    Int(value: string),
+    Float(value: string),
+    Str(value: string),
+    Template(value: string),
+    Op(value: string),
+    Eof(value: string),
+}
+
+struct Token {
+    kind: TokenKind,
+    line: i32,
+}
+
+// Dokładnie te same 35 słów kluczowych co `keywords` w
+// src/internal/lexer/token.go - jeśli tam się coś doda, trzeba
+// zsynchronizować tę listę ręcznie (nie ma jeszcze mechanizmu, który
+// by to wymuszał - patrz "Co nadal wymaga rozbudowy" w README).
+let KEYWORDS = [
+    "let", "const", "mut", "fn", "struct", "impl", "trait", "enum",
+    "match", "if", "else", "while", "for", "in", "return",
+    "import", "from", "as", "async", "await",
+    "true", "false", "null", "new", "self", "pub", "type",
+    "break", "continue", "throw", "try", "catch", "finally",
+    "declare", "module",
+]
+
+// Operatory dwuznakowe, dłuższe od jednoznakowych o tym samym prefiksie -
+// sprawdzane PRZED pojedynczymi znakami, żeby np. "==" nie zostało
+// zjedzone jako dwa "=" z rzędu. Kolejność nieistotna (dopasowanie po
+// dokładnej treści, nie po prefiksie).
+let TWO_CHAR_OPS = [
+    "==", "!=", "<=", ">=", "->", "=>", "&&", "||", "??", "?.",
+    "+=", "-=", "*=", "/=",
+]
+
+pub struct Lexer {
+    input: string,
+    pos: i32,
+    line: i32,
+}
+
+impl Lexer {
+    fn peekChar(self, offset: i32) -> string {
+        let idx = self.pos + offset
+        if idx >= self.input.length {
+            return ""
+        }
+        return self.input.charAt(idx)
+    }
+
+    fn current(self) -> string {
+        return self.peekChar(0)
+    }
+
+    fn advance(self) {
+        if self.current() == "\n" {
+            self.line = self.line + 1
+        }
+        self.pos = self.pos + 1
+    }
+
+    fn isDigit(self, ch: string) -> bool {
+        return ch >= "0" && ch <= "9"
+    }
+
+    fn isLetter(self, ch: string) -> bool {
+        return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch == "_"
+    }
+
+    fn skipTrivia(self) {
+        let mut skipping = true
+        while skipping {
+            while self.current() == " " || self.current() == "\t" || self.current() == "\n" || self.current() == "\r" {
+                self.advance()
+            }
+            if self.current() == "/" && self.peekChar(1) == "/" {
+                while self.current() != "\n" && self.current() != "" {
+                    self.advance()
+                }
+            } else {
+                skipping = false
+            }
+        }
+    }
+
+    fn readWhile(self, pred: any) -> string {
+        let start = self.pos
+        while self.pos < self.input.length && pred(self.current()) {
+            self.advance()
+        }
+        return self.input.slice(start, self.pos)
+    }
+
+    // readQuoted czyta string ograniczony podanym znakiem cudzysłowu -
+    // ta sama logika obsługuje zarówno " jak i ' (token.go traktuje oba
+    // warianty jako jeden STRING token type, więc tu też jeden Str tag).
+    // Dekoduje podstawowe sekwencje ucieczki (\n \t \r \\ \" \' \` \$) -
+    // nieznana sekwencja jest zachowywana dosłownie (znak po `\` bez
+    // zmian), zamiast rzucać błędem, żeby lekser był odporny na
+    // sekwencje, o których jeszcze nie pomyślano.
+    fn readQuoted(self, quote: string) -> string {
+        self.advance() // otwierający cudzysłów
+        let mut result = ""
+        while self.current() != quote && self.current() != "" {
+            if self.current() == "\\" {
+                self.advance()
+                let esc = self.current()
+                if esc == "n" {
+                    result = result + "\n"
+                } else if esc == "t" {
+                    result = result + "\t"
+                } else if esc == "r" {
+                    result = result + "\r"
+                } else {
+                    result = result + esc
+                }
+                self.advance()
+            } else {
+                result = result + self.current()
+                self.advance()
+            }
+        }
+        self.advance() // domykający cudzysłów
+        return result
+    }
+
+    fn readNumber(self) -> Token {
+        let ln = self.line
+        let mut numStr = self.readWhile((c) => self.isDigit(c))
+        let mut isFloat = false
+
+        if self.current() == "." && self.isDigit(self.peekChar(1)) {
+            isFloat = true
+            self.advance() // kropka dziesiętna
+            numStr = numStr + "." + self.readWhile((c) => self.isDigit(c))
+        }
+
+        if self.current() == "e" || self.current() == "E" {
+            let mut signOffset = 1
+            let mut sign = ""
+            if self.peekChar(1) == "+" || self.peekChar(1) == "-" {
+                sign = self.peekChar(1)
+                signOffset = 2
+            }
+            if self.isDigit(self.peekChar(signOffset)) {
+                isFloat = true
+                let e = self.current()
+                self.advance() // e/E
+                if sign != "" {
+                    self.advance() // + lub -
+                }
+                numStr = numStr + e + sign + self.readWhile((c) => self.isDigit(c))
+            }
+        }
+
+        if isFloat {
+            return Token { kind: TokenKind.Float(numStr), line: ln }
+        }
+        return Token { kind: TokenKind.Int(numStr), line: ln }
+    }
+
+    fn readTemplate(self) -> Token {
+        let ln = self.line
+        // Treść template literala jest przekazywana 1:1 do JS (patrz
+        // komentarz przy TEMPLATE w token.go) - nie próbujemy tu
+        // parsować ${...} jako osadzonych wyrażeń, tylko kopiujemy
+        // surowy tekst między backtickami, tak jak robi to prawdziwy
+        // lekser.
+        return Token { kind: TokenKind.Template(self.readQuoted("`")), line: ln }
+    }
+
+    fn matchTwoCharOp(self) -> string {
+        let candidate = self.current() + self.peekChar(1)
+        if TWO_CHAR_OPS.includes(candidate) {
+            return candidate
+        }
+        return ""
+    }
+
+    pub fn nextToken(self) -> Token {
+        self.skipTrivia()
+        let ln = self.line
+        let ch = self.current()
+
+        if ch == "" {
+            return Token { kind: TokenKind.Eof(""), line: ln }
+        }
+
+        if self.isDigit(ch) {
+            return self.readNumber()
+        }
+
+        if self.isLetter(ch) {
+            let ident = self.readWhile((c) => self.isLetter(c) || self.isDigit(c))
+            if KEYWORDS.includes(ident) {
+                return Token { kind: TokenKind.Keyword(ident), line: ln }
+            }
+            return Token { kind: TokenKind.Ident(ident), line: ln }
+        }
+
+        if ch == "\"" || ch == "'" {
+            return Token { kind: TokenKind.Str(self.readQuoted(ch)), line: ln }
+        }
+
+        if ch == "`" {
+            return self.readTemplate()
+        }
+
+        // spread "..." - trzy znaki, sprawdzane przed dwuznakowymi operatorami
+        if ch == "." && self.peekChar(1) == "." && self.peekChar(2) == "." {
+            self.advance()
+            self.advance()
+            self.advance()
+            return Token { kind: TokenKind.Op("..."), line: ln }
+        }
+
+        let twoChar = self.matchTwoCharOp()
+        if twoChar != "" {
+            self.advance()
+            self.advance()
+            return Token { kind: TokenKind.Op(twoChar), line: ln }
+        }
+
+        self.advance()
+        return Token { kind: TokenKind.Op(ch), line: ln }
+    }
+}
+
+pub fn newLexer(input: string) -> Lexer {
+    return Lexer { input: input, pos: 0, line: 1 }
+}
+
+// tokenize zwraca wszystkie tokeny WŁĄCZNIE z końcowym Eof.
+pub fn tokenize(input: string) -> any {
+    let lex = newLexer(input)
+    let mut tokens = []
+    let mut tok = lex.nextToken()
+    while tok.kind.tag != "Eof" {
+        tokens.push(tok)
+        tok = lex.nextToken()
+    }
+    tokens.push(tok)
+    return tokens
+}
