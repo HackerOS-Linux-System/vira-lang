@@ -1,0 +1,119 @@
+import { parseProgram } from "./stmt_parser.hyper"
+import { checkProgramNodes } from "./checker.hyper"
+import { generate } from "./codegen.hyper"
+
+pub struct Bundler {
+    files: any,     // Map<string, string> - ścieżka -> źródło
+    parsed: any,     // Map<string, any[]> - ścieżka -> sparsowany program
+    visiting: any,   // Set<string> - węzły na aktualnej ścieżce DFS (wykrywanie cykli)
+    visited: any,    // Set<string> - węzły już w pełni odwiedzone
+    order: any,      // string[] - kolejność topologiczna (zależności przed zależnymi)
+}
+
+impl Bundler {
+    // visit - DFS post-order: najpierw zależności, potem bieżący plik
+    // trafia do `order`. To standardowy algorytm sortowania
+    // topologicznego przez DFS, ten sam co używa się do wykrywania
+    // cykli w grafach importów w prawdziwych bundlerach (webpack,
+    // esbuild, i - jak zakładamy - bundler.go).
+    fn visit(self, path: string) {
+        if self.visited.has(path) {
+            return
+        }
+        if self.visiting.has(path) {
+            throw new Error(`bundler: cykl importów wykryty przy '${path}'`)
+        }
+        if !self.files.has(path) {
+            throw new Error(`bundler: nie znaleziono pliku '${path}' (sprawdź czy podano go w 'files')`)
+        }
+
+        self.visiting.add(path)
+        let source = self.files.get(path)
+        let program = parseProgram(source)
+        self.parsed.set(path, program)
+
+        for stmt in program {
+            if stmt.tag == "ImportStmt" {
+                self.visit(stmt.path)
+            }
+        }
+
+        self.visiting.delete(path)
+        self.visited.add(path)
+        self.order.push(path)
+    }
+
+    // bundle - zwraca POŁĄCZONY program (tablicę Stmt) w kolejności
+    // topologicznej, z odfiltrowanymi ImportStmt (są potrzebne tylko
+    // do zbudowania grafu zależności, nie mają odpowiednika w
+    // połączonym wyjściu - podobnie jak nagłówki `#include` znikają po
+    // preprocessingu w C).
+    pub fn bundle(self, entryPath: string) -> any {
+        self.visit(entryPath)
+        let mut merged = []
+        for path in self.order {
+            let program = self.parsed.get(path)
+            for stmt in program {
+                if stmt.tag != "ImportStmt" {
+                    merged.push(stmt)
+                }
+            }
+        }
+        return merged
+    }
+}
+
+// bundleFiles - `fileList` to tablica { path, source } (a nie od razu
+// Map) wyłącznie dla wygody wywołujących - literały obiektowe są
+// łatwiejsze do napisania niż `new Map([[k, v], ...])`.
+pub fn bundleFiles(fileList: any, entryPath: string) -> any {
+    let files = new Map()
+    for f in fileList {
+        files.set(f.path, f.source)
+    }
+    let b = Bundler { files: files, parsed: new Map(), visiting: new Set(), visited: new Set(), order: [] }
+    return b.bundle(entryPath)
+}
+
+struct CompileResult {
+    ok: bool,
+    errors: any,
+    code: string,
+}
+
+// bundleCheckAndGenerate - pełny pipeline: bundle -> check -> codegen,
+// dokładnie ta sama rola co Compile() w compile.go (Go). To pierwszy
+// moment w bootstrapie, w którym wszystkie cztery kanarki (lekser,
+// parser instrukcji, checker, codegen) działają RAZEM na jednym
+// wejściu, a nie w izolacji.
+pub fn bundleCheckAndGenerate(fileList: any, entryPath: string) -> any {
+    let program = bundleFiles(fileList, entryPath)
+    let errors = checkProgramNodes(program)
+    if errors.length > 0 {
+        return CompileResult { ok: false, errors: errors, code: "" }
+    }
+    let code = generate(program)
+    return CompileResult { ok: true, errors: [], code: code }
+}
+
+// --- Czego tu brakuje (świadomie, nie przez przeoczenie) ---------------
+//
+// Względem bundler.go (230 linii) w Go:
+//   - Prawdziwe I/O - `files` jest dostarczane z zewnątrz (patrz
+//     komentarz na górze pliku); integracja z `std/fs/readText.hyper`
+//     to osobny, następny krok
+//   - Normalizacja ścieżek (`../foo.hyper`, rozwiązywanie względem
+//     katalogu importującego pliku, nie względem cwd) - dziś ścieżki w
+//     `files` muszą być DOKŁADNIE tymi samymi stringami co w `import
+//     ... from "..."` w źródle, bez żadnego przetwarzania
+//   - `ast/stamp.go` - znakowanie, z którego pliku pochodzi który
+//     węzeł AST (potrzebne do sensownych komunikatów błędów
+//     wskazujących plik, nie tylko linię) - dziś błędy z
+//     `checkProgramNodes` po zbundlowaniu NIE mówią, z którego pliku
+//     pochodzi problem
+//   - Import selektywny (`import { a } from "..."` powinno
+//     ewentualnie ograniczać, co jest widoczne, zamiast merge'ować
+//     WSZYSTKIE top-level deklaracje z każdego pliku - dziś każdy
+//     zaimportowany plik wnosi WSZYSTKIE swoje `pub` i nie-`pub`
+//     deklaracje do połączonego programu, bez rozróżnienia)
+// Każdy z powyższych to samodzielny, weryfikowalny przyrost.
