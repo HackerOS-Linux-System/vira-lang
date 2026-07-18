@@ -1,0 +1,13 @@
+package:
+  name: hyperc-bootstrap
+  version: 0.0.1
+  license: MIT
+  description: >-
+    Powolne, przyrostowe przepisywanie hyperc na sam Hyper Lang.
+    Zaczyna się od leksera - patrz README.adoc w tym katalogu po
+    uzasadnienie kolejności i strategię weryfikacji ("kanarek").
+
+hyperc:
+  version: "0.0.1"
+
+dependencies: {}
