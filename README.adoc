@@ -1,53 +1,151 @@
 = Hyper Lang
 
-Statycznie typowany język programowania transpilowany do JavaScript,
-zaprojektowany z myślą o dużych projektach.
+Statycznie typowany język transpilowany do JavaScript, z natywną obsługą
+bibliotek npm/JSR/TS bez pisania ani utrzymywania osobnych wrapperów czy
+plików `.d.ts`.
 
-== Dlaczego
-
-TypeScript rozwiązał typowanie JS, ale zostawił dwa uporczywe problemy:
-fragmentację narzędziową (npm/yarn/pnpm, brak jednego standardu) i typowanie
-bibliotek jako osobny wszechświat (`@types/*`, `DefinitelyTyped`, wrappery
-pisane ręcznie). Hyper Lang celuje w oba naraz: jeden menedżer pakietów
-(`vira`, inspirowany Cargo) i natywną obsługę bibliotek JS/TS bez wrapperów.
+Dokumentacja: link:website/home.html[strona główna] &middot;
+link:website/docs.html[referencja języka] &middot;
+link:website/vira.html[referencja vira]
 
 == Struktura repozytorium
 
 [source]
 ----
-src/            kompilator hyperc (Go) - lekser, parser, checker, codegen
-vira/           menedżer pakietów vira, napisany w samym Hyper Lang
-examples/       przykładowe programy .hyper
-website/        wygenerowana strona projektu (patrz build.hyper)
-build.hyper     generator website/index.html
-build.rb        hook pre-buildowy pakietu (odpowiednik build.rs z Cargo)
-vira.yml        manifest workspace'u (odpowiednik Cargo.toml)
+LICENSE            MIT
+README.adoc        ten plik
+build.hyper         hook pre-build (Hyper Lang) - generuje src/build_info.gen.js
+build.rb             skrypt release'owy (PRAWDZIWY Ruby) - bump wersji, changelog, tag
+index.html          przekierowanie do website/home.html
+vira.yml             manifest workspace'u (root)
+
+src/                kompilator (Go) - jedyne wiarygodne dziś źródło budowania hyperc
+  go.mod
+  hyperc/            binarka: WYŁĄCZNIE kompilacja (plik.hyper -> JS)
+  hyperfmt/          binarka: formatter (jak gofmt)
+  hyperls/           binarka: serwer LSP (jak gopls)
+  internal/
+    lexer/            tokenizacja
+    ast/               węzły AST + StampFile (znakowanie pliku źródłowego)
+    parser/            recursive descent + precedence climbing
+    bundler/           rozwiązywanie lokalnych importów .hyper, wykrywanie cykli/kolizji
+    checker/           typy, arność, traity, pub, wyczerpujący match
+    codegen/           generator JS (+ JSDoc dla generyków)
+    compile/           spina bundler+checker+codegen, używane przez CLI i LSP
+    formatter/         re-indenter oparty o lekser
+    lsp/                minimalny serwer JSON-RPC (diagnostyka + format)
+
+vira/                menedżer pakietów - NAPISANY W SAMYM HYPER LANG
+  vira.yml
+  src/
+    main.hyper          dispatcher CLI
+    reporter.hyper       raportowanie
+    manifest.hyper       vira.yml (odczyt/zapis)
+    registry.hyper       npm / JSR / vira.io
+    lockfile.hyper       vira.lock
+    build.hyper           `vira build` (+ --release: Node SEA / Tauri)
+    run.hyper              `vira run`
+    check.hyper            `vira check`
+    fmt.hyper               `vira fmt`
+    lsp.hyper                `vira lsp`
+    publish.hyper             `vira publish`
+
+cmd/                początek self-hostingu (hyperc W Hyper Lang) - patrz cmd/README.adoc
+  vira.yml
+  src/lexer.hyper     lekser napisany w Hyper Lang, v0.3 (kanarek 1/bootstrapu)
+  src/parser.hyper    parser wyrażeń arytmetycznych (kanarek 2/bootstrapu)
+  src/stmt_parser.hyper  parser instrukcji/deklaracji, v0.3 (kanarek 3/bootstrapu)
+  src/checker.hyper   podstawowy checker (kanarek 4/bootstrapu)
+  src/codegen.hyper   generator JS (kanarek 5/bootstrapu)
+  src/bundler.hyper   rozwiązywanie importów + pełny pipeline (kanarek 6/bootstrapu)
+  std/                82 moduły biblioteki standardowej (cienkie wrappery nad JS/Node)
+
+examples/            działające przykłady (każdy skompilowany i uruchomiony)
+packaging/           definicje pakietów (.deb/.rpm przez nfpm, PKGBUILD, NSIS, itd.)
+website/             dokumentacja HTML (home.html, docs.html, vira.html)
+.github/workflows/   CI/CD - release wieloplatformowy
 ----
 
 == Szybki start
 
 [source,bash]
 ----
-cd src && go build -o ../bin/hyperc .
-cd ..
-./bin/hyperc run examples/hello.hyper
+go build -o hyperc ./src/hyperc
+./hyperc examples/hello.hyper -o hello.js
+node hello.js
 ----
 
-== Stan projektu (v0.1)
+Na co dzień: `vira new`, `vira install`, `vira build`, `vira run` - patrz
+link:website/vira.html[dokumentacja vira].
 
-Zaimplementowane: lekser, parser, statyczny checker (typy prymitywne,
-zgodność traitów, wyczerpujący `match`, arność wywołań, niemutowalność),
-generator JS, CLI (`build`/`run`), obsługa błędów (`throw`/`try`/`catch`/
-`finally`), aliasy w importach (`import { load as parseYaml } from "js-yaml"`).
+== Filozofia narzędzi (jak w Go)
 
-`vira/` zawiera już działającą (nie tylko zaprojektowaną) menedżerkę
-pakietów napisaną w samym Hyper Lang - parsuje `vira.yml`, rozwiązuje
-zależności przez prawdziwe zapytania do rejestru npm, zapisuje `vira.lock`,
-i potrafi wygenerować szkielet nowego projektu (`vira new <nazwa>`).
+`hyperc` robi **wyłącznie kompilację** - `hyperc plik.hyper [-o wyjście] [--check] [--json]`,
+nic więcej. Formatowanie (`hyperfmt`) i LSP (`hyperls`) to **osobne binarki**,
+dokładnie jak `gofmt`/`gopls` są osobne od `go`. `vira` orkiestruje
+wszystko na poziomie projektu (`vira build`, `vira run`, `vira fmt`,
+`vira lsp`, `vira check`, `vira publish`, `vira install/remove/search`) -
+tam żyje codzienny workflow, nie w samym kompilatorze.
 
-W budowie: pełna inferencja typów, generyki w codegenie, LSP, formatter,
-rozwiązywanie importów pomiędzy plikami `.hyper` (dziś każdy plik kompiluje
-się niezależnie), bootstrapping (hyperc napisany w samym Hyper Lang).
+== Co jest zaimplementowane (v0.3)
+
+=== Kompilator
+
+* lekser, parser, statyczny checker, generator JS, moduły między plikami
+* **walidacja, że zaimportowana nazwa lokalna FAKTYCZNIE istnieje w module źródłowym** - literówka w imporcie jest dziś błędem kompilatora, nie `ReferenceError` w node (złapało to nawet literówki we własnych testach napisanych w tej sesji)
+* diagnostyki ze ścieżką pliku źródłowego, inferencja typu przez łańcuchy wywołań, egzekwowanie `pub`, zgodność traitów, wyczerpujący `match`, `throw`/`try`/`catch`/`finally`, literał obiektu, destrukturyzacja, spread, ternary, aliasy importów, generyki jako JSDoc, precyzyjne grupowanie wyrażeń w JS
+
+=== Narzędzia
+
+* `hyperc` - wyłącznie kompilacja
+* `hyperfmt` - re-indenter
+* `hyperls` - LSP: diagnostyka na żywo, formatowanie, **oraz teraz hover i go-to-definition** dla deklaracji top-level (funkcje/struktury/enumy/traity), oparte o `checker.Index` + retokenizację dokumentu w miejscu kursora - **przetestowane jako prawdziwy klient JSON-RPC**
+
+=== vira (13 plików `.hyper`)
+
+* `vira new/install/remove/search/check/fmt/build/run/lsp/publish`
+* **resolver semver** (`^`, `~`, dokładna wersja, `*`) - własna implementacja w `semver.hyper`, przetestowana na 10 przypadkach
+* **realne pobieranie i rozpakowywanie paczek** do `.vira/packages/<nazwa>@<wersja>/` - tarball przez `tar` dla npm/JSR, płytki `git clone` dla vira.io - **przetestowane realnie** (prawdziwe pliki `left-pad`/`is-odd` na dysku po `vira install`)
+* **scaffolding Tauri** (`vira build --release --target tauri`) - generuje Cargo.toml/tauri.conf.json/main.rs jeśli `src-tauri/` nie istnieje - pliki wygenerowane i zweryfikowane, samo `cargo tauri build` niesprawdzone (brak toolchainu Rust w środowisku)
+* trzy rejestry: npm, JSR (`jsr:`, nieprzetestowane realnie - brak dostępu do `jsr.io` w tej piaskownicy), vira.io (`vira:`, **przetestowane realnym zapytaniem** do `raw.githubusercontent.com/vira-io/repository`)
+* `vira build --release` (bez `--target`) buduje samodzielną binarkę Node SEA - przetestowane, plik ELF ~120MB uruchamialny bez node w PATH
+
+=== cmd/ - bootstrap (dwa kanarki)
+
+* `cmd/src/lexer.hyper` - działający lekser
+* `cmd/src/parser.hyper` - **nowy**: parser wyrażeń arytmetycznych (recursive descent + precedence climbing) napisany w Hyper Lang, przetestowany m.in. na dokładnie tym przypadku (`2 + 3 * 4` vs `(2 + 3) * 4`), który złapał realny bug w samym `hyperc`
+* `cmd/std/` - 82 moduły + **2 nowe z prawdziwą logiką** (nie wrapperami): `string/slugify.hyper` (normalizacja do url-slug) i `collections/linkedlist.hyper` (lista wiązana z węzłami) + **test suite** (`std_test.hyper`, 26 asercji, wszystkie przechodzą) - który po drodze złapał dwie literówki we własnych importach dzięki nowej walidacji importów
+
+=== website/
+
+* wyszukiwarka po stronie klienta (vanilla JS, bez zależności) w `docs.html`/`vira.html`
+* tabele stanu implementacji zaktualizowane
+
+== Co pozostaje zablokowane (nie moje ograniczenia kodu, tylko środowiska)
+
+* **JSR na żywo** - `jsr.io`/`npm.jsr.io`/`api.jsr.io` nie są dostępne z tej piaskownicy (biała lista domen sieciowych). Kod istnieje i jest analogiczny do już sprawdzonego npm, ale niezweryfikowany.
+* **`.eopkg`/OpenBSD `pkg_add` jako natywne pakiety** - wymagają odpowiednio `solbuild` i `pkg_create`, których GitHub Actions nie udostępnia jako hostowanych runnerów. Joby w CI są gotowe i wyłączone (`if: false`), czekają na self-hosted runner - to decyzja infrastrukturalna, nie coś do naprawienia kodem.
+* **Pełny self-hosted parser/checker/codegen** - dwa kanarki (lekser, parser wyrażeń) działają i są przetestowane. Parser CAŁEGO języka to już wielotygodniowy projekt, nie coś do dorzucenia w tej samej sesji - patrz `cmd/README.adoc` po uzasadnienie kolejności kroków.
+
+== Co nadal wymaga rozbudowy
+
+* Pełna unifikacja typów (dziś: proste przypisania + łańcuchy wywołań)
+* Generyki z ograniczeniami (`T: Trait`) - parsowane, nieegzekwowane
+* Sourcemapy
+* LSP: completion ze świadomością zasięgów lokalnych
+* Formatter jako pełny pretty-printer (wymaga trivia dla komentarzy w parserze)
+* Rozwiązywanie CAŁEGO drzewa zależności przechodnich w `vira install` (dziś: płaska struktura, bez zagnieżdżonych zależności zależności)
+* Cross-kompilacja w `vira build --release`
+* Bootstrap `cmd/`: lekser v0.3, parser instrukcji/deklaracji v0.3,
+  podstawowy checker, codegen i bundler (kanarki 1-6, ze spiętym
+  pipeline'em bundle -> check -> codegen) gotowe - ale bez integracji
+  z prawdziwym `std/fs` (bundler działa na danych z pamięci), bez
+  inferencji typów (checker sprawdza tylko istnienie nazw) i bez
+  sprawdzania wyczerpywalności `match` (patrz `cmd/README.adoc`)
+* Hashmapa/słownik w bibliotece standardowej (dziś: `stack`, `linkedlist`,
+  `queue` w `cmd/std/collections/`, zero NATYWNEGO słownika - `checker.hyper`
+  obchodzi to interopem z JS `Map`, co się sprawdziło, ale natywny typ
+  wciąż byłby czytelniejszy niż pamiętanie, które zmienne to `Map`)
 
 == Licencja
 
