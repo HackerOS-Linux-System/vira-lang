@@ -1,0 +1,30 @@
+// error_handling.hyper - throw/try/catch/finally
+
+struct InsufficientFundsError {
+  balance: f64,
+  requested: f64,
+}
+
+fn withdraw(balance: f64, amount: f64) -> f64 {
+  if amount > balance {
+    throw new Error(`za mało środków: masz ${balance}, chcesz wypłacić ${amount}`)
+  }
+  return balance - amount
+}
+
+fn main() {
+  let mut balance = 100.0
+
+  try {
+    balance = withdraw(balance, 30.0)
+    console.log(`po pierwszej wypłacie: ${balance}`)
+    balance = withdraw(balance, 1000.0)
+    console.log("ta linia się nie wykona")
+  } catch (e) {
+    console.log(`złapano błąd: ${e.message}`)
+  } finally {
+    console.log(`stan konta na koniec: ${balance}`)
+  }
+}
+
+main()
