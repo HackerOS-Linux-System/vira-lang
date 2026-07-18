@@ -1,0 +1,30 @@
+// destructuring.hyper - destrukturyzacja obiektu/tablicy, spread, ternary
+
+struct User {
+  name: string,
+  age: i32,
+  email: string,
+}
+
+fn describe(user: User) -> string {
+  let { name, age } = user
+  return age >= 18 ? `${name} jest dorosły` : `${name} jest niepełnoletni`
+}
+
+fn main() {
+  let user = User { name: "Ada", age: 28, email: "ada@example.com" }
+  console.log(describe(user))
+
+  let numbers = [10, 20, 30, 40, 50]
+  let [first, second, ...reszta] = numbers
+  console.log(`pierwszy=${first} drugi=${second} reszta=${reszta}`)
+
+  let base = { a: 1, b: 2 }
+  let extended = { ...base, c: 3 }
+  console.log(JSON.stringify(extended))
+
+  let combined = [...numbers, 60, 70]
+  console.log(combined)
+}
+
+main()
