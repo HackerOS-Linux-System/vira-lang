@@ -1,0 +1,56 @@
+import { mkdirSync, existsSync, writeFileSync } from "fs"
+import { execSync } from "child_process"
+import path from "path"
+import { ConsoleReporter } from "./reporter.hyper"
+
+pub fn packageDir(name: string, version: string) -> string {
+    let safeName = name.replaceAll("/", "__")
+    return path.join(".vira", "packages", `${safeName}@${version}`)
+}
+
+// downloadTarball pobiera .tgz (npm/JSR mają identyczny format archiwum) i
+// rozpakowuje go przez `tar` (execSync - natywna interoperacyjność z
+// narzędziami systemowymi, tak samo jak reszta `vira build --release`).
+// Pomija pobieranie, jeśli katalog docelowy już istnieje (prosty cache).
+pub async fn downloadTarball(url: string, destDir: string, reporter: ConsoleReporter) {
+    if existsSync(destDir) {
+        reporter.info(`${destDir} już istnieje, pomijam pobieranie`)
+        return
+    }
+    mkdirSync(destDir, { recursive: true })
+
+    let res = await fetch(url)
+    if !res.ok {
+        throw new Error(`vira: nie można pobrać ${url} (HTTP ${res.status})`)
+    }
+    let buffer = await res.arrayBuffer()
+    let tgzPath = path.join(destDir, "package.tgz")
+    writeFileSync(tgzPath, Buffer.from(buffer))
+
+    // npm/JSR tarballe mają zawsze jeden katalog nadrzędny w środku
+    // (zwykle "package/") - --strip-components=1 spłaszcza to od razu.
+    execSync(`tar -xzf ${tgzPath} -C ${destDir} --strip-components=1`, { stdio: "pipe" })
+    execSync(`rm ${tgzPath}`, { stdio: "pipe" })
+    reporter.info(`pobrano i rozpakowano ${url} -> ${destDir}`)
+}
+
+// cloneViraPackage klonuje repo git (płytko, bez historii) dla pakietów
+// z rejestru vira.io, które nie są tarballami tylko surowymi repo.
+pub fn cloneViraPackage(repoUrl: string, destDir: string, reporter: ConsoleReporter) {
+    if existsSync(destDir) {
+        reporter.info(`${destDir} już istnieje, pomijam klonowanie`)
+        return
+    }
+    mkdirSync(path.dirname(destDir), { recursive: true })
+    execSync(`git clone --depth 1 ${repoUrl} ${destDir}`, { stdio: "pipe" })
+    reporter.info(`sklonowano ${repoUrl} -> ${destDir}`)
+}
+
+pub async fn downloadPackage(pkg: any, reporter: ConsoleReporter) {
+    let dir = packageDir(pkg.name, pkg.version)
+    if pkg.registry == "vira" {
+        cloneViraPackage(pkg.resolved, dir, reporter)
+    } else {
+        await downloadTarball(pkg.resolved, dir, reporter)
+    }
+}
