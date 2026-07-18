@@ -1,0 +1,1118 @@
+import { tokenize } from "./lexer.hyper"
+
+// --- węzły wyrażeń -----------------------------------------------------
+// Odpowiednik ast.Expr z src/internal/ast/ast.go.
+enum Expr {
+    NumberLit(value: string),
+    StringLit(value: string),
+    BoolLit(value: bool),
+    NullLit(),
+    Ident(name: string),
+    Unary(op: string, operand: any),
+    Binary(op: string, left: any, right: any),
+    Call(callee: any, args: any),
+    New(callee: any),
+    Member(object: any, property: string),
+    OptionalMember(object: any, property: string),
+    Index(object: any, index: any),
+    ArrayLit(elements: any),
+    ObjectLit(fields: any),
+    StructLit(typeName: string, fields: any),
+    Spread(value: any),
+    Await(operand: any),
+    Match(subject: any, arms: any),
+}
+
+// --- węzły instrukcji i deklaracji --------------------------------------
+// Odpowiednik ast.Stmt. `isPub`/`isAsync` (nie `pub`/`async`) - obie
+// nazwy są słowami kluczowymi, więc nie mogą być nazwami pól
+// enuma/structu.
+enum Stmt {
+    Let(name: string, mutable: bool, typeName: string, value: any),
+    LetDestructure(names: any, value: any, isArray: bool),
+    ExprStmt(value: any),
+    Return(value: any),
+    If(cond: any, thenBlock: any, elseBlock: any),
+    While(cond: any, body: any),
+    ForIn(varName: string, iterable: any, body: any),
+    Block(stmts: any),
+    Break(),
+    Continue(),
+    Throw(value: any),
+    Try(block: any, catchParam: string, catchBlock: any, finallyBlock: any),
+    FnDecl(isPub: bool, isAsync: bool, name: string, generics: any, params: any, returnType: string, body: any),
+    StructDecl(isPub: bool, name: string, fields: any),
+    EnumDecl(isPub: bool, name: string, variants: any),
+    ImplDecl(traitName: string, typeName: string, methods: any),
+    TraitDecl(name: string, methods: any),
+    ImportStmt(names: any, path: string),
+    DeclareModule(name: string, decls: any),
+}
+
+struct Field {
+    name: string,
+    typeName: string,
+}
+
+struct EnumVariant {
+    name: string,
+    fields: any,
+}
+
+struct StructField {
+    name: string,
+    value: any,
+}
+
+struct MatchArm {
+    pattern: any,
+    body: any,
+}
+
+struct Pattern {
+    wildcard: bool,
+    variant: string,
+    bindings: any,
+    literal: any,
+}
+
+struct TraitMethod {
+    name: string,
+    params: any,
+    returnType: string,
+}
+
+pub struct StmtParser {
+    tokens: any,
+    pos: i32,
+}
+
+impl StmtParser {
+    fn current(self) -> any {
+        return self.tokens[self.pos]
+    }
+
+    fn advance(self) -> any {
+        let t = self.current()
+        self.pos = self.pos + 1
+        return t
+    }
+
+    fn curTag(self) -> string {
+        return self.current().kind.tag
+    }
+
+    fn curValue(self) -> string {
+        return self.current().kind.value
+    }
+
+    fn atKeyword(self, word: string) -> bool {
+        return self.curTag() == "Keyword" && self.curValue() == word
+    }
+
+    fn atOp(self, op: string) -> bool {
+        return self.curTag() == "Op" && self.curValue() == op
+    }
+
+    fn expectOp(self, op: string) {
+        if !self.atOp(op) {
+            throw new Error(`stmt_parser: oczekiwano '${op}', otrzymano ${self.curTag()}(${self.curValue()}) w linii ${self.current().line}`)
+        }
+        self.advance()
+    }
+
+    fn expectKeyword(self, word: string) {
+        if !self.atKeyword(word) {
+            throw new Error(`stmt_parser: oczekiwano słowa kluczowego '${word}', otrzymano ${self.curTag()}(${self.curValue()}) w linii ${self.current().line}`)
+        }
+        self.advance()
+    }
+
+    fn expectIdent(self) -> string {
+        if self.curTag() != "Ident" {
+            throw new Error(`stmt_parser: oczekiwano identyfikatora, otrzymano ${self.curTag()}(${self.curValue()}) w linii ${self.current().line}`)
+        }
+        return self.advance().kind.value
+    }
+
+    // expectParamName - jak expectIdent, ale dopuszcza `self` jako nazwę
+    // parametru (metody trait/impl zaczynają się od `fn describe(self)`,
+    // a `self` jest słowem kluczowym, nie Ident-em).
+    fn expectParamName(self) -> string {
+        if self.atKeyword("self") {
+            return self.advance().kind.value
+        }
+        return self.expectIdent()
+    }
+
+    fn expectStr(self) -> string {
+        if self.curTag() != "Str" {
+            throw new Error(`stmt_parser: oczekiwano stringa, otrzymano ${self.curTag()}(${self.curValue()}) w linii ${self.current().line}`)
+        }
+        return self.advance().kind.value
+    }
+
+    // parseTypeString - uproszczona adnotacja typu. Obsługuje: prosty
+    // identyfikator (`i32`), sufiks tablicowy (`T[]`), generyki
+    // instancjonowane (`Array<T>`, zagnieżdżalne), unie (`A | B`) i typy
+    // funkcyjne (`(a: i32, b: string) -> bool`).
+    fn parseTypeString(self) -> string {
+        if self.atOp("(") {
+            self.advance()
+            let mut paramTypes = []
+            while !self.atOp(")") {
+                paramTypes.push(self.parseTypeString())
+                if self.atOp(",") {
+                    self.advance()
+                }
+            }
+            self.expectOp(")")
+            self.expectOp("->")
+            let ret = self.parseTypeString()
+            return `(${paramTypes.join(", ")}) -> ${ret}`
+        }
+
+        let mut name = self.expectIdent()
+        if self.atOp("[") {
+            self.advance()
+            self.expectOp("]")
+            name = name + "[]"
+        } else if self.atOp("<") {
+            self.advance()
+            let mut args = []
+            while !self.atOp(">") {
+                args.push(self.parseTypeString())
+                if self.atOp(",") {
+                    self.advance()
+                }
+            }
+            self.expectOp(">")
+            name = `${name}<${args.join(", ")}>`
+        }
+        if self.atOp("|") {
+            self.advance()
+            let rest = self.parseTypeString()
+            name = `${name} | ${rest}`
+        }
+        return name
+    }
+
+    // parseGenericParams - `<T>` lub `<T: Trait, U>` po nazwie fn/struct.
+    // Ograniczenia (`: Trait`) są parsowane i ODRZUCANE (erasure) -
+    // dokładnie tak samo jak parseGenericParams w Go, świadomie
+    // nieegzekwowane (egzekwowanie wymaga checkera ze znajomością
+    // traitów - patrz checker.hyper, który TEŻ tego jeszcze nie robi).
+    fn parseGenericParams(self) -> any {
+        let mut names = []
+        if !self.atOp("<") {
+            return names
+        }
+        self.advance()
+        while !self.atOp(">") {
+            let name = self.expectIdent()
+            if self.atOp(":") {
+                self.advance()
+                self.parseTypeString() // ograniczenie - sparsowane i odrzucone
+            }
+            names.push(name)
+            if self.atOp(",") {
+                self.advance()
+            }
+        }
+        self.expectOp(">")
+        return names
+    }
+
+    // --- wyrażenia -------------------------------------------------
+    //
+    // noStruct kontroluje, czy `Ident {` powinno być odczytane jako
+    // literał struct (`Circle { radius: 2.0 }`) czy zostawione dla
+    // parsera instrukcji jako początek bloku (`if cond { ... }`).
+    // UWAGA: gołe `{` (bez poprzedzającego Ident) NIE ma tej
+    // niejednoznaczności - parsePrimaryAtom jest wywoływane tylko w
+    // kontekście wyrażenia, nigdy tam gdzie oczekiwany byłby blok
+    // (parseStatement obsługuje `{` jako blok PRZED sięgnięciem po
+    // wyrażenie) - dlatego ObjectLit poniżej nie potrzebuje noStruct.
+
+    // Priorytet 0 jest zarezerwowany jako sentinel "to nie jest operator
+    // binarny" (patrz parseExpr) - przypisanie zaczyna się od 1 i, w
+    // odróżnieniu od pozostałych, jest prawostronnie łączne (patrz
+    // parseExpr: dla prec==1 prawa strona jest parsowana na tym samym
+    // poziomie, nie prec+1 - to samo co ASSIGNP w Go).
+    fn precedence(self, op: string) -> i32 {
+        if op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" { return 1 }
+        if op == "||" { return 2 }
+        if op == "&&" { return 3 }
+        if op == "==" || op == "!=" { return 4 }
+        if op == "<" || op == ">" || op == "<=" || op == ">=" { return 5 }
+        if op == "+" || op == "-" { return 6 }
+        if op == "*" || op == "/" || op == "%" { return 7 }
+        return 0
+    }
+
+    fn isAssignOp(self, op: string) -> bool {
+        return op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/="
+    }
+
+    // parseCallArg - pojedynczy argument wywołania, z opcjonalnym
+    // spreadem (`...xs`).
+    fn parseCallArg(self) -> any {
+        if self.atOp("...") {
+            self.advance()
+            return Expr.Spread(self.parseExpr(0, false))
+        }
+        return self.parseExpr(0, false)
+    }
+
+    fn parseArgs(self) -> any {
+        let mut args = []
+        self.expectOp("(")
+        while !self.atOp(")") {
+            args.push(self.parseCallArg())
+            if self.atOp(",") {
+                self.advance()
+            }
+        }
+        self.expectOp(")")
+        return args
+    }
+
+    fn parsePrimaryAtom(self, noStruct: bool) -> any {
+        let tok = self.current()
+
+        if tok.kind.tag == "Int" || tok.kind.tag == "Float" {
+            self.advance()
+            return Expr.NumberLit(tok.kind.value)
+        }
+        if tok.kind.tag == "Str" || tok.kind.tag == "Template" {
+            self.advance()
+            return Expr.StringLit(tok.kind.value)
+        }
+        if tok.kind.tag == "Keyword" && tok.kind.value == "true" {
+            self.advance()
+            return Expr.BoolLit(true)
+        }
+        if tok.kind.tag == "Keyword" && tok.kind.value == "false" {
+            self.advance()
+            return Expr.BoolLit(false)
+        }
+        if tok.kind.tag == "Keyword" && tok.kind.value == "null" {
+            self.advance()
+            return Expr.NullLit()
+        }
+        if tok.kind.tag == "Keyword" && tok.kind.value == "self" {
+            self.advance()
+            return Expr.Ident("self")
+        }
+        if tok.kind.tag == "Keyword" && tok.kind.value == "await" {
+            self.advance()
+            let operand = self.parseUnary(noStruct)
+            return Expr.Await(operand)
+        }
+        if tok.kind.tag == "Keyword" && tok.kind.value == "new" {
+            self.advance()
+            let callee = self.parsePostfix(noStruct)
+            return Expr.New(callee)
+        }
+        if tok.kind.tag == "Keyword" && tok.kind.value == "match" {
+            return self.parseMatchExpr()
+        }
+        if tok.kind.tag == "Ident" {
+            let name = self.advance().kind.value
+            if !noStruct && self.atOp("{") {
+                self.advance()
+                let mut fields = []
+                while !self.atOp("}") {
+                    let fieldName = self.expectIdent()
+                    self.expectOp(":")
+                    let fieldValue = self.parseExpr(0, false)
+                    fields.push(StructField { name: fieldName, value: fieldValue })
+                    if self.atOp(",") {
+                        self.advance()
+                    }
+                }
+                self.expectOp("}")
+                return Expr.StructLit(name, fields)
+            }
+            return Expr.Ident(name)
+        }
+        if tok.kind.tag == "Op" && tok.kind.value == "(" {
+            self.advance()
+            let inner = self.parseExpr(0, false)
+            self.expectOp(")")
+            return inner
+        }
+        if tok.kind.tag == "Op" && tok.kind.value == "[" {
+            self.advance()
+            let mut elements = []
+            while !self.atOp("]") {
+                elements.push(self.parseCallArg())
+                if self.atOp(",") {
+                    self.advance()
+                }
+            }
+            self.expectOp("]")
+            return Expr.ArrayLit(elements)
+        }
+        // ObjectLit - gołe `{ klucz: wartość, ... }`. Bezpieczne bez
+        // noStruct (patrz komentarz nad `precedence`).
+        if tok.kind.tag == "Op" && tok.kind.value == "{" {
+            self.advance()
+            let mut fields = []
+            while !self.atOp("}") {
+                let fieldName = self.expectIdent()
+                self.expectOp(":")
+                let fieldValue = self.parseExpr(0, false)
+                fields.push(StructField { name: fieldName, value: fieldValue })
+                if self.atOp(",") {
+                    self.advance()
+                }
+            }
+            self.expectOp("}")
+            return Expr.ObjectLit(fields)
+        }
+
+        throw new Error(`stmt_parser: nieoczekiwany token ${tok.kind.tag}(${tok.kind.value}) w linii ${tok.line}`)
+    }
+
+    // parseUnary - prefiksy `!` i `-`, wiążą MOCNIEJ niż operatory
+    // binarne, ale SŁABIEJ niż postfiks (`!x.y()` to `!(x.y())`, nie
+    // `(!x).y()`), więc operand jest parsowany przez parsePostfix, nie
+    // wprost przez parsePrimaryAtom.
+    fn parseUnary(self, noStruct: bool) -> any {
+        if self.atOp("!") || self.atOp("-") {
+            let op = self.advance().kind.value
+            let operand = self.parseUnary(noStruct)
+            return Expr.Unary(op, operand)
+        }
+        return self.parsePostfix(noStruct)
+    }
+
+    // parsePostfix - łańcuch `.property`, `?.property`, `[index]`,
+    // `(args)` o jednakowym, najwyższym priorytecie - dokładnie jak
+    // POSTFIX w tabeli precedences w parser.go. `.` i `?.` produkują
+    // różne węzły (Member vs OptionalMember) - sama różnica składniowa
+    // jest tu zachowana, semantyka "krótkiego spięcia" zostaje zadaniem
+    // codegenu (patrz "Czego tu brakuje").
+    fn parsePostfix(self, noStruct: bool) -> any {
+        let mut node = self.parsePrimaryAtom(noStruct)
+        let mut chaining = true
+        while chaining {
+            if self.atOp(".") {
+                self.advance()
+                let name = self.expectIdent()
+                node = Expr.Member(node, name)
+            } else if self.atOp("?.") {
+                self.advance()
+                let name = self.expectIdent()
+                node = Expr.OptionalMember(node, name)
+            } else if self.atOp("(") {
+                let args = self.parseArgs()
+                node = Expr.Call(node, args)
+            } else if self.atOp("[") {
+                self.advance()
+                let idx = self.parseExpr(0, false)
+                self.expectOp("]")
+                node = Expr.Index(node, idx)
+            } else {
+                chaining = false
+            }
+        }
+        return node
+    }
+
+    pub fn parseExpr(self, minPrec: i32, noStruct: bool) -> any {
+        let mut left = self.parseUnary(noStruct)
+
+        while true {
+            let tok = self.current()
+            if tok.kind.tag != "Op" {
+                break
+            }
+            let prec = self.precedence(tok.kind.value)
+            if prec == 0 || prec < minPrec {
+                break
+            }
+            let op = self.advance().kind.value
+            let mut right = null
+            if prec == 1 {
+                // przypisanie: prawostronnie łączne (`a = b = c` parsuje
+                // się jako `a = (b = c)`), więc prawa strona jest
+                // parsowana na TYM SAMYM poziomie priorytetu.
+                right = self.parseExpr(prec, noStruct)
+            } else {
+                right = self.parseExpr(prec + 1, noStruct)
+            }
+            left = Expr.Binary(op, left, right)
+        }
+
+        return left
+    }
+
+    // --- match + wzorce ------------------------------------------------
+
+    fn parsePattern(self) -> any {
+        if self.curTag() == "Ident" && self.curValue() == "_" {
+            self.advance()
+            return Pattern { wildcard: true, variant: "", bindings: [], literal: null }
+        }
+        if self.curTag() == "Ident" {
+            let name = self.advance().kind.value
+            let mut bindings = []
+            if self.atOp("(") {
+                self.advance()
+                while !self.atOp(")") {
+                    bindings.push(self.expectIdent())
+                    if self.atOp(",") {
+                        self.advance()
+                    }
+                }
+                self.expectOp(")")
+            }
+            return Pattern { wildcard: false, variant: name, bindings: bindings, literal: null }
+        }
+        let lit = self.parseExpr(0, false)
+        return Pattern { wildcard: false, variant: "", bindings: [], literal: lit }
+    }
+
+    fn parseMatchExpr(self) -> any {
+        self.expectKeyword("match")
+        // noStruct=true: subject jest zaraz followed by `{` otwierające
+        // ciało match, więc `Ident {` tu NIE może być literałem struct.
+        let subject = self.parseExpr(0, true)
+        self.expectOp("{")
+        let mut arms = []
+        while !self.atOp("}") {
+            let pattern = self.parsePattern()
+            self.expectOp("=>")
+            let mut body = null
+            if self.atOp("{") {
+                body = self.parseBlock()
+            } else {
+                body = self.parseExpr(0, false)
+            }
+            arms.push(MatchArm { pattern: pattern, body: body })
+            if self.atOp(",") {
+                self.advance()
+            }
+        }
+        self.expectOp("}")
+        return Expr.Match(subject, arms)
+    }
+
+    // --- instrukcje --------------------------------------------------
+
+    pub fn parseBlock(self) -> any {
+        self.expectOp("{")
+        let mut stmts = []
+        while !self.atOp("}") {
+            stmts.push(self.parseStatement())
+        }
+        self.expectOp("}")
+        return Stmt.Block(stmts)
+    }
+
+    // parseDestructureNames - lista identyfikatorów między `{`/`[` a
+    // `}`/`]`, dzielona przecinkami. Wspólna dla destrukturyzacji
+    // obiektowej i tablicowej w `let`.
+    fn parseDestructureNames(self, closing: string) -> any {
+        let mut names = []
+        while !self.atOp(closing) {
+            names.push(self.expectIdent())
+            if self.atOp(",") {
+                self.advance()
+            }
+        }
+        self.expectOp(closing)
+        return names
+    }
+
+    fn parseLet(self) -> any {
+        self.expectKeyword("let")
+        if self.atOp("{") {
+            self.advance()
+            let names = self.parseDestructureNames("}")
+            self.expectOp("=")
+            let value = self.parseExpr(0, false)
+            return Stmt.LetDestructure(names, value, false)
+        }
+        if self.atOp("[") {
+            self.advance()
+            let names = self.parseDestructureNames("]")
+            self.expectOp("=")
+            let value = self.parseExpr(0, false)
+            return Stmt.LetDestructure(names, value, true)
+        }
+
+        let mut mutable = false
+        if self.atKeyword("mut") {
+            self.advance()
+            mutable = true
+        }
+        let name = self.expectIdent()
+        let mut typeName = ""
+        if self.atOp(":") {
+            self.advance()
+            typeName = self.parseTypeString()
+        }
+        self.expectOp("=")
+        let value = self.parseExpr(0, false)
+        return Stmt.Let(name, mutable, typeName, value)
+    }
+
+    fn parseReturn(self) -> any {
+        self.expectKeyword("return")
+        if self.atOp("}") {
+            return Stmt.Return(null)
+        }
+        return Stmt.Return(self.parseExpr(0, false))
+    }
+
+    fn parseThrow(self) -> any {
+        self.expectKeyword("throw")
+        return Stmt.Throw(self.parseExpr(0, false))
+    }
+
+    fn parseTry(self) -> any {
+        self.expectKeyword("try")
+        let block = self.parseBlock()
+        let mut catchParam = ""
+        let mut catchBlock = null
+        let mut finallyBlock = null
+        if self.atKeyword("catch") {
+            self.advance()
+            if self.atOp("(") {
+                self.advance()
+                catchParam = self.expectIdent()
+                self.expectOp(")")
+            }
+            catchBlock = self.parseBlock()
+        }
+        if self.atKeyword("finally") {
+            self.advance()
+            finallyBlock = self.parseBlock()
+        }
+        return Stmt.Try(block, catchParam, catchBlock, finallyBlock)
+    }
+
+    fn parseIf(self) -> any {
+        self.expectKeyword("if")
+        // noStruct=true z tego samego powodu co w parseMatchExpr.
+        let cond = self.parseExpr(0, true)
+        let thenBlock = self.parseBlock()
+        let mut elseBlock = null
+        if self.atKeyword("else") {
+            self.advance()
+            if self.atKeyword("if") {
+                elseBlock = self.parseIf()
+            } else {
+                elseBlock = self.parseBlock()
+            }
+        }
+        return Stmt.If(cond, thenBlock, elseBlock)
+    }
+
+    fn parseWhile(self) -> any {
+        self.expectKeyword("while")
+        let cond = self.parseExpr(0, true)
+        let body = self.parseBlock()
+        return Stmt.While(cond, body)
+    }
+
+    fn parseForIn(self) -> any {
+        self.expectKeyword("for")
+        let varName = self.expectIdent()
+        self.expectKeyword("in")
+        let iterable = self.parseExpr(0, true)
+        let body = self.parseBlock()
+        return Stmt.ForIn(varName, iterable, body)
+    }
+
+    fn parseParams(self) -> any {
+        let mut params = []
+        self.expectOp("(")
+        while !self.atOp(")") {
+            let name = self.expectParamName()
+            let mut typeName = ""
+            if self.atOp(":") {
+                self.advance()
+                typeName = self.parseTypeString()
+            }
+            params.push(Field { name: name, typeName: typeName })
+            if self.atOp(",") {
+                self.advance()
+            }
+        }
+        self.expectOp(")")
+        return params
+    }
+
+    fn parseFnDecl(self, isPub: bool, isAsync: bool) -> any {
+        self.expectKeyword("fn")
+        let name = self.expectIdent()
+        let generics = self.parseGenericParams()
+        let params = self.parseParams()
+        let mut returnType = ""
+        if self.atOp("->") {
+            self.advance()
+            returnType = self.parseTypeString()
+        }
+        let body = self.parseBlock()
+        return Stmt.FnDecl(isPub, isAsync, name, generics, params, returnType, body)
+    }
+
+    fn parseStructDecl(self, isPub: bool) -> any {
+        self.expectKeyword("struct")
+        let name = self.expectIdent()
+        self.expectOp("{")
+        let mut fields = []
+        while !self.atOp("}") {
+            let fieldName = self.expectIdent()
+            self.expectOp(":")
+            let typeName = self.parseTypeString()
+            fields.push(Field { name: fieldName, typeName: typeName })
+            if self.atOp(",") {
+                self.advance()
+            }
+        }
+        self.expectOp("}")
+        return Stmt.StructDecl(isPub, name, fields)
+    }
+
+    fn parseEnumDecl(self, isPub: bool) -> any {
+        self.expectKeyword("enum")
+        let name = self.expectIdent()
+        self.expectOp("{")
+        let mut variants = []
+        while !self.atOp("}") {
+            let variantName = self.expectIdent()
+            let mut fields = []
+            if self.atOp("(") {
+                self.advance()
+                while !self.atOp(")") {
+                    let fieldName = self.expectIdent()
+                    self.expectOp(":")
+                    let typeName = self.parseTypeString()
+                    fields.push(Field { name: fieldName, typeName: typeName })
+                    if self.atOp(",") {
+                        self.advance()
+                    }
+                }
+                self.expectOp(")")
+            }
+            variants.push(EnumVariant { name: variantName, fields: fields })
+            if self.atOp(",") {
+                self.advance()
+            }
+        }
+        self.expectOp("}")
+        return Stmt.EnumDecl(isPub, name, variants)
+    }
+
+    // parseImplDecl - obsługuje zarówno `impl Trait for Type { ... }`
+    // jak i `impl Type { ... }` (inherent impl, bez traitu).
+    fn parseImplDecl(self) -> any {
+        self.expectKeyword("impl")
+        let firstName = self.expectIdent()
+        let mut traitName = ""
+        let mut typeName = firstName
+        if self.atKeyword("for") {
+            self.advance()
+            traitName = firstName
+            typeName = self.expectIdent()
+        }
+        self.expectOp("{")
+        let mut methods = []
+        while !self.atOp("}") {
+            methods.push(self.parseMethodMaybeAsync())
+        }
+        self.expectOp("}")
+        return Stmt.ImplDecl(traitName, typeName, methods)
+    }
+
+    fn parseMethodMaybeAsync(self) -> any {
+        let mut isAsync = false
+        if self.atKeyword("async") {
+            self.advance()
+            isAsync = true
+        }
+        return self.parseFnDecl(false, isAsync)
+    }
+
+    // parseTraitDecl - metody traitu mają TYLKO sygnaturę, bez ciała
+    // (`fn describe(self) -> string`).
+    fn parseTraitDecl(self) -> any {
+        self.expectKeyword("trait")
+        let name = self.expectIdent()
+        self.expectOp("{")
+        let mut methods = []
+        while !self.atOp("}") {
+            self.expectKeyword("fn")
+            let methodName = self.expectIdent()
+            let params = self.parseParams()
+            let mut returnType = ""
+            if self.atOp("->") {
+                self.advance()
+                returnType = self.parseTypeString()
+            }
+            methods.push(TraitMethod { name: methodName, params: params, returnType: returnType })
+        }
+        self.expectOp("}")
+        return Stmt.TraitDecl(name, methods)
+    }
+
+    fn parseImport(self) -> any {
+        self.expectKeyword("import")
+        self.expectOp("{")
+        let names = self.parseDestructureNames("}")
+        self.expectKeyword("from")
+        let path = self.expectStr()
+        return Stmt.ImportStmt(names, path)
+    }
+
+    // parseDeclareModule - deklaracje ambientowe: `declare module "nazwa"
+    // { fn foo(x: i32) -> string ... }` - same sygnatury, bez ciał,
+    // dokładnie jak w trait.
+    fn parseDeclareModule(self) -> any {
+        self.expectKeyword("declare")
+        self.expectKeyword("module")
+        let name = self.expectStr()
+        self.expectOp("{")
+        let mut decls = []
+        while !self.atOp("}") {
+            self.expectKeyword("fn")
+            let declName = self.expectIdent()
+            let params = self.parseParams()
+            let mut returnType = ""
+            if self.atOp("->") {
+                self.advance()
+                returnType = self.parseTypeString()
+            }
+            decls.push(TraitMethod { name: declName, params: params, returnType: returnType })
+        }
+        self.expectOp("}")
+        return Stmt.DeclareModule(name, decls)
+    }
+
+    // parseStatement - gramatyka instrukcji WEWNĄTRZ bloku (ciało fn,
+    // if, while, ...). `pub`, `import`, `impl`, `trait`, `declare` są
+    // celowo wyłączone stąd - dozwolone tylko na najwyższym poziomie
+    // pliku, przez parseTopLevelStmt.
+    pub fn parseStatement(self) -> any {
+        if self.atKeyword("let") {
+            return self.parseLet()
+        }
+        if self.atKeyword("return") {
+            return self.parseReturn()
+        }
+        if self.atKeyword("if") {
+            return self.parseIf()
+        }
+        if self.atKeyword("while") {
+            return self.parseWhile()
+        }
+        if self.atKeyword("for") {
+            return self.parseForIn()
+        }
+        if self.atKeyword("try") {
+            return self.parseTry()
+        }
+        if self.atKeyword("throw") {
+            return self.parseThrow()
+        }
+        if self.atKeyword("break") {
+            self.advance()
+            return Stmt.Break()
+        }
+        if self.atKeyword("continue") {
+            self.advance()
+            return Stmt.Continue()
+        }
+        if self.atKeyword("async") || self.atKeyword("fn") {
+            return self.parseMethodMaybeAsync()
+        }
+        if self.atKeyword("struct") {
+            return self.parseStructDecl(false)
+        }
+        if self.atKeyword("enum") {
+            return self.parseEnumDecl(false)
+        }
+        if self.atOp("{") {
+            return self.parseBlock()
+        }
+        return Stmt.ExprStmt(self.parseExpr(0, false))
+    }
+
+    pub fn parseTopLevelStmt(self) -> any {
+        let mut isPub = false
+        if self.atKeyword("pub") {
+            self.advance()
+            isPub = true
+        }
+        if self.atKeyword("import") {
+            return self.parseImport()
+        }
+        if self.atKeyword("declare") {
+            return self.parseDeclareModule()
+        }
+        if self.atKeyword("async") || self.atKeyword("fn") {
+            let mut isAsync = false
+            if self.atKeyword("async") {
+                self.advance()
+                isAsync = true
+            }
+            return self.parseFnDecl(isPub, isAsync)
+        }
+        if self.atKeyword("struct") {
+            return self.parseStructDecl(isPub)
+        }
+        if self.atKeyword("enum") {
+            return self.parseEnumDecl(isPub)
+        }
+        if self.atKeyword("impl") {
+            return self.parseImplDecl()
+        }
+        if self.atKeyword("trait") {
+            return self.parseTraitDecl()
+        }
+        return self.parseStatement()
+    }
+
+    pub fn parseProgram(self) -> any {
+        let mut stmts = []
+        while self.curTag() != "Eof" {
+            stmts.push(self.parseTopLevelStmt())
+        }
+        return stmts
+    }
+}
+
+pub fn parseProgram(source: string) -> any {
+    let tokens = tokenize(source)
+    let p = StmtParser { tokens: tokens, pos: 0 }
+    return p.parseProgram()
+}
+
+// --- renderowanie do tekstu ---------------------------------------------
+// Ta sama rola weryfikacyjna co exprToString w cmd/src/parser.hyper:
+// najprostszy sposób na wizualne potwierdzenie poprawności drzewa bez
+// pisania osobnego pretty-printera.
+
+pub fn patternToString(pat: any) -> string {
+    if pat.wildcard {
+        return "_"
+    }
+    if pat.variant != "" {
+        if pat.bindings.length > 0 {
+            return `${pat.variant}(${pat.bindings.join(", ")})`
+        }
+        return pat.variant
+    }
+    return exprToString(pat.literal)
+}
+
+pub fn exprToString(node: any) -> string {
+    if node.tag == "NumberLit" {
+        return node.value
+    }
+    if node.tag == "StringLit" {
+        return `"${node.value}"`
+    }
+    if node.tag == "BoolLit" {
+        return `${node.value}`
+    }
+    if node.tag == "NullLit" {
+        return "null"
+    }
+    if node.tag == "Ident" {
+        return node.name
+    }
+    if node.tag == "Unary" {
+        return `(${node.op}${exprToString(node.operand)})`
+    }
+    if node.tag == "Binary" {
+        return `(${exprToString(node.left)} ${node.op} ${exprToString(node.right)})`
+    }
+    if node.tag == "Call" {
+        let mut parts = []
+        for arg in node.args {
+            parts.push(exprToString(arg))
+        }
+        return `${exprToString(node.callee)}(${parts.join(", ")})`
+    }
+    if node.tag == "New" {
+        return `new ${exprToString(node.callee)}`
+    }
+    if node.tag == "Member" {
+        return `${exprToString(node.object)}.${node.property}`
+    }
+    if node.tag == "OptionalMember" {
+        return `${exprToString(node.object)}?.${node.property}`
+    }
+    if node.tag == "Index" {
+        return `${exprToString(node.object)}[${exprToString(node.index)}]`
+    }
+    if node.tag == "ArrayLit" {
+        let mut parts = []
+        for el in node.elements {
+            parts.push(exprToString(el))
+        }
+        return `[${parts.join(", ")}]`
+    }
+    if node.tag == "ObjectLit" {
+        let mut parts = []
+        for f in node.fields {
+            parts.push(`${f.name}: ${exprToString(f.value)}`)
+        }
+        return `{ ${parts.join(", ")} }`
+    }
+    if node.tag == "StructLit" {
+        let mut parts = []
+        for f in node.fields {
+            parts.push(`${f.name}: ${exprToString(f.value)}`)
+        }
+        return `${node.typeName} { ${parts.join(", ")} }`
+    }
+    if node.tag == "Spread" {
+        return `...${exprToString(node.value)}`
+    }
+    if node.tag == "Await" {
+        return `await ${exprToString(node.operand)}`
+    }
+    if node.tag == "Match" {
+        let mut parts = []
+        for arm in node.arms {
+            let bodyStr = arm.body.tag == "Block" ? stmtToString(arm.body) : exprToString(arm.body)
+            parts.push(`${patternToString(arm.pattern)} => ${bodyStr}`)
+        }
+        return `match ${exprToString(node.subject)} { ${parts.join(", ")} }`
+    }
+    return "?"
+}
+
+pub fn stmtToString(node: any) -> string {
+    if node.tag == "Let" {
+        let kw = node.mutable ? "let mut" : "let"
+        return `${kw} ${node.name} = ${exprToString(node.value)}`
+    }
+    if node.tag == "LetDestructure" {
+        let brackets = node.isArray ? "[" : "{"
+        let closeBrackets = node.isArray ? "]" : "}"
+        return `let ${brackets} ${node.names.join(", ")} ${closeBrackets} = ${exprToString(node.value)}`
+    }
+    if node.tag == "ExprStmt" {
+        return exprToString(node.value)
+    }
+    if node.tag == "Return" {
+        if node.value == null {
+            return "return"
+        }
+        return `return ${exprToString(node.value)}`
+    }
+    if node.tag == "If" {
+        let mut out = `if ${exprToString(node.cond)} ${stmtToString(node.thenBlock)}`
+        if node.elseBlock != null {
+            out = `${out} else ${stmtToString(node.elseBlock)}`
+        }
+        return out
+    }
+    if node.tag == "While" {
+        return `while ${exprToString(node.cond)} ${stmtToString(node.body)}`
+    }
+    if node.tag == "ForIn" {
+        return `for ${node.varName} in ${exprToString(node.iterable)} ${stmtToString(node.body)}`
+    }
+    if node.tag == "Block" {
+        let mut parts = []
+        for s in node.stmts {
+            parts.push(stmtToString(s))
+        }
+        return `{ ${parts.join("; ")} }`
+    }
+    if node.tag == "Break" {
+        return "break"
+    }
+    if node.tag == "Continue" {
+        return "continue"
+    }
+    if node.tag == "Throw" {
+        return `throw ${exprToString(node.value)}`
+    }
+    if node.tag == "Try" {
+        let mut out = `try ${stmtToString(node.block)}`
+        if node.catchBlock != null {
+            out = `${out} catch (${node.catchParam}) ${stmtToString(node.catchBlock)}`
+        }
+        if node.finallyBlock != null {
+            out = `${out} finally ${stmtToString(node.finallyBlock)}`
+        }
+        return out
+    }
+    if node.tag == "FnDecl" {
+        let mut paramParts = []
+        for param in node.params {
+            paramParts.push(param.name)
+        }
+        let mut prefix = node.isPub ? "pub " : ""
+        prefix = node.isAsync ? `${prefix}async fn` : `${prefix}fn`
+        let genericsPart = node.generics.length > 0 ? `<${node.generics.join(", ")}>` : ""
+        return `${prefix} ${node.name}${genericsPart}(${paramParts.join(", ")}) ${stmtToString(node.body)}`
+    }
+    if node.tag == "StructDecl" {
+        let mut fieldParts = []
+        for field in node.fields {
+            fieldParts.push(`${field.name}: ${field.typeName}`)
+        }
+        let prefix = node.isPub ? "pub struct" : "struct"
+        return `${prefix} ${node.name} { ${fieldParts.join(", ")} }`
+    }
+    if node.tag == "EnumDecl" {
+        let mut variantParts = []
+        for variant in node.variants {
+            variantParts.push(variant.name)
+        }
+        let prefix = node.isPub ? "pub enum" : "enum"
+        return `${prefix} ${node.name} { ${variantParts.join(", ")} }`
+    }
+    if node.tag == "ImplDecl" {
+        let mut methodParts = []
+        for m in node.methods {
+            methodParts.push(stmtToString(m))
+        }
+        let header = node.traitName != "" ? `impl ${node.traitName} for ${node.typeName}` : `impl ${node.typeName}`
+        return `${header} { ${methodParts.join(" ")} }`
+    }
+    if node.tag == "TraitDecl" {
+        let mut methodParts = []
+        for m in node.methods {
+            methodParts.push(`fn ${m.name}(...) -> ${m.returnType}`)
+        }
+        return `trait ${node.name} { ${methodParts.join("; ")} }`
+    }
+    if node.tag == "ImportStmt" {
+        return `import { ${node.names.join(", ")} } from "${node.path}"`
+    }
+    if node.tag == "DeclareModule" {
+        let mut declParts = []
+        for d in node.decls {
+            declParts.push(`fn ${d.name}(...) -> ${d.returnType}`)
+        }
+        return `declare module "${node.name}" { ${declParts.join("; ")} }`
+    }
+    return "?"
+}
+
+// --- Czego tu brakuje (świadomie, nie przez przeoczenie) ---------------
+//
+// Względem pełnej gramatyki w src/internal/parser/parser.go:
+//   - Prawdziwa semantyka "krótkiego spięcia" dla `?.` - AST już
+//     rozróżnia Member od OptionalMember, ale to codegen musiałby
+//     wygenerować faktyczne sprawdzenie null/undefined
+//   - Destrukturyzacja zagnieżdżona (`let { a: { b } } = x`) i w
+//     parametrach funkcji (`fn f({ x, y }) { ... }`) - dziś
+//     destrukturyzacja działa tylko w `let`, tylko płasko
+//   - Decoratory/adnotacje (jeśli język by je miał)
+// Każdy z powyższych to samodzielny, weryfikowalny przyrost.
+//
+// Poza samym parserem: codegen dla tego AST wciąż NIE ISTNIEJE. Checker
+// (podstawowa wersja) - patrz cmd/src/checker.hyper, CZWARTY kanarek.
