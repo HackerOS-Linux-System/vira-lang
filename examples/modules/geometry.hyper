@@ -1,0 +1,23 @@
+// modules/geometry.hyper - moduł biblioteczny importowany przez main.hyper.
+// Pokazuje `pub` (widoczność między plikami, egzekwowana przez checker).
+
+pub struct Rectangle {
+  width: f64,
+  height: f64,
+}
+
+impl Rectangle {
+  pub fn area(self) -> f64 {
+    return self.width * self.height
+  }
+}
+
+// pomocnicza funkcja - CELOWO bez `pub`, więc main.hyper nie może jej użyć
+// (spróbuj odkomentować import poniżej w main.hyper, żeby zobaczyć błąd)
+fn internalHelper() -> string {
+  return "widoczne tylko wewnątrz geometry.hyper"
+}
+
+pub fn describeRectangle(r: Rectangle) -> string {
+  return `${r.width}x${r.height} (pole: ${r.area()})`
+}
