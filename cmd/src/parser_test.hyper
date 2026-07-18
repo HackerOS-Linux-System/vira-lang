@@ -1,0 +1,31 @@
+import { parseExpression, exprToString, evalExpr } from "./parser.hyper"
+
+fn check(source: string, expectedTree: string, expectedValue: f64) {
+    let tree = parseExpression(source)
+    let rendered = exprToString(tree)
+    let value = evalExpr(tree)
+
+    let treeOk = rendered == expectedTree
+    let valueOk = value == expectedValue
+
+    console.log(`${source}  =>  ${rendered}  =  ${value}   ${treeOk && valueOk ? "OK" : "BŁĄD"}`)
+
+    if !treeOk {
+        console.log(`  oczekiwano drzewa: ${expectedTree}`)
+    }
+    if !valueOk {
+        console.log(`  oczekiwano wartości: ${expectedValue}`)
+    }
+}
+
+fn main() {
+    // Dokładnie ten sam przypadek, który złapał realny bug w hyperc
+    // (gubienie nawiasów w codegenie) - tu weryfikujemy że parser-kanarek
+    // buduje POPRAWNE drzewo od samego początku.
+    check("2 + 3 * 4", "(2 + (3 * 4))", 14.0)
+    check("(2 + 3) * 4", "((2 + 3) * 4)", 20.0)
+    check("10 - 2 - 3", "((10 - 2) - 3)", 5.0)
+    check("2 * 3 + 4 * 5", "((2 * 3) + (4 * 5))", 26.0)
+}
+
+main()
