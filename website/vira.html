@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vira — menedżer pakietów Hyper Lang</title>
+<meta name="description" content="vira: instalacja zależności z npm/JSR/vira.io, budowanie do JS albo samodzielnej binarki, uruchamianie, formatowanie, LSP i publikacja.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <nav class="nav wrap">
+    <a class="brand" href="home.html"><span class="dot">&gt;_</span> hyper-lang</a>
+    <div class="navlinks">
+      <a href="home.html">Start</a>
+      <a href="docs.html">Dokumentacja</a>
+      <a href="vira.html" class="current">vira</a>
+      <a href="https://github.com/hyperlang-dev/hyper-lang">GitHub</a>
+    </div>
+  </nav>
+</header>
+
+<main class="wrap">
+  <div class="docs-hero">
+    <h1>vira</h1>
+    <p>Menedżer pakietów i budowania Hyper Lang, napisany <b>w samym Hyper Lang</b> (<code>vira/src/*.hyper</code>, skompilowane przez <code>hyperc</code>). Inspirowany Cargo: jeden manifest, jeden lockfile, natywna obsługa pakietów bez osobnego rejestru typów.</p>
+  </div>
+
+  <div class="docs-layout">
+    <nav class="doc-nav">
+      <input type="search" class="doc-search" id="docsearch" placeholder="Szukaj..." aria-label="Szukaj w dokumentacji">
+      <div id="docsearch-empty" class="no-results" hidden>Brak wyników.</div>
+      <div class="doc-nav-group">
+        <h4>Podstawy</h4>
+        <a href="#manifest">vira.yml</a>
+        <a href="#workspace">Workspace</a>
+      </div>
+      <div class="doc-nav-group">
+        <h4>Komendy</h4>
+        <a href="#new">vira new</a>
+        <a href="#install">vira install / remove</a>
+        <a href="#search">vira search</a>
+        <a href="#check">vira check</a>
+        <a href="#fmt">vira fmt</a>
+        <a href="#build">vira build</a>
+        <a href="#run">vira run</a>
+        <a href="#lsp">vira lsp</a>
+        <a href="#publish">vira publish</a>
+      </div>
+      <div class="doc-nav-group">
+        <h4>Rejestry</h4>
+        <a href="#registries">npm / JSR / vira.io</a>
+      </div>
+    </nav>
+
+    <div class="doc-content">
+
+      <section id="manifest">
+        <h2>vira.yml</h2>
+        <p>Manifest w YAML (nie TOML jak Cargo.toml - świadomy wybór, YAML jest wszechobecny w ekosystemie JS/npm).</p>
+        <pre><code>package:
+  name: moj-projekt
+  version: 0.1.0
+  license: MIT
+
+# Hyper Lang jest przed 1.0 i nie ma "edycji" jak Rust - zamiast tego,
+# jak `go 1.22` w go.mod, wskazujemy minimalną wersję hyperc.
+hyperc:
+  version: "0.0.1"
+
+dependencies:
+  left-pad: "^1.3.0"
+  jsr:@luca/cases: "^1.0.0"
+
+dev-dependencies: {}</code></pre>
+      </section>
+
+      <section id="workspace">
+        <h2>Workspace</h2>
+        <p>Wiele pakietów w jednym repo, każdy z własnym <code>vira.yml</code> - dokładnie jak Cargo workspace.</p>
+        <pre><code># vira.yml w katalogu głównym
+workspace:
+  members:
+    - vira
+    - inny-pakiet</code></pre>
+      </section>
+
+      <section id="new">
+        <h2>vira new</h2>
+        <pre><code>$ vira new moj-projekt
+vira: utworzono nowy projekt w ./moj-projekt</code></pre>
+        <p>Tworzy <code>vira.yml</code> i <code>src/main.hyper</code> ze wzorcowym "Hello World".</p>
+      </section>
+
+      <section id="install">
+        <h2>vira install / vira remove</h2>
+        <pre><code>$ vira install                    # instaluje wszystkie zależności z vira.yml
+$ vira install left-pad           # dopisuje i instaluje jedną (npm)
+$ vira install jsr:@luca/cases    # z JSR
+$ vira install vira:nidus         # z rejestru społecznościowego vira.io
+$ vira remove left-pad</code></pre>
+        <p>Każdy <code>install</code> honoruje zakres semver z <code>vira.yml</code> (<code>^</code>, <code>~</code>, dokładna wersja, <code>*</code>), zapisuje rozwiązane wersje w <code>vira.lock</code> i realnie pobiera + rozpakowuje paczkę do <code>.vira/packages/&lt;nazwa&gt;@&lt;wersja&gt;/</code> (tarball dla npm/JSR, płytki <code>git clone</code> dla vira.io).</p>
+        <div class="note">Płaska struktura <code>.vira/packages/</code> - bez zagnieżdżonych zależności przechodnich. Rozwiązywanie całego drzewa zależności to kolejny krok.</div>
+      </section>
+
+      <section id="search">
+        <h2>vira search</h2>
+        <pre><code>$ vira search chalk
+chalk@5.6.2 - Terminal string styling done right
+...
+$ vira search cases --registry jsr</code></pre>
+      </section>
+
+      <section id="check">
+        <h2>vira check</h2>
+        <p>Parsuje i sprawdza typy całego projektu (podążając za wszystkimi lokalnymi importami) <b>bez emitowania JS</b> - szybka pętla informacji zwrotnej, odpowiednik <code>cargo check</code> / <code>tsc --noEmit</code>.</p>
+        <pre><code>$ vira check
+src/main.hyper: OK</code></pre>
+      </section>
+
+      <section id="fmt">
+        <h2>vira fmt</h2>
+        <pre><code>$ vira fmt              # formatuje wszystkie pliki .hyper w src/
+$ vira fmt --check      # tylko sprawdza (exit 1 jeśli niesformatowane)</code></pre>
+        <p>Pod maską woła <code>hyperfmt</code> - osobną binarkę, jak <code>gofmt</code>.</p>
+      </section>
+
+      <section id="build">
+        <h2>vira build</h2>
+        <pre><code>$ vira build              # transpiluje do dist/&lt;nazwa&gt;.js
+$ vira build --release    # buduje samodzielną binarkę</code></pre>
+        <p><code>--release</code> wykrywa cel automatycznie (albo wymuś przez <code>--target tauri</code>):</p>
+        <table>
+          <tr><th>Wykryto</th><th>Strategia</th></tr>
+          <tr><td><code>src-tauri/</code> istnieje, albo <code>--target tauri</code></td><td>generuje minimalny szkielet Tauri jeśli brak (Cargo.toml, tauri.conf.json, main.rs), potem deleguje do <code>npx tauri build</code></td></tr>
+          <tr><td>w przeciwnym razie</td><td>Node.js Single Executable Application (<code>node --experimental-sea-config</code> + <code>postject</code>)</td></tr>
+        </table>
+        <div class="note">Zbudowana binarka SEA to realny, samodzielny plik wykonywalny (kopia binarki Node z wstrzykniętym bundlem) - nie wymaga zainstalowanego Node.js na maszynie docelowej. Nie jest to jednak cross-kompilacja: binarka powstaje dla platformy, na której działa <code>vira build --release</code>.</div>
+        <div class="note warn">Szkielet Tauri jest generowany i sprawdzony (poprawne pliki), ale samo <code>cargo tauri build</code> wymaga toolchainu Rust/Tauri CLI na Twojej maszynie - nie zostało uruchomione w środowisku, w którym to powstało.</div>
+      </section>
+
+      <section id="run">
+        <h2>vira run</h2>
+        <pre><code>$ vira run              # kompiluje do pliku tymczasowego i uruchamia przez node
+$ vira run --release    # uruchamia wcześniej zbudowaną binarkę bezpośrednio</code></pre>
+      </section>
+
+      <section id="lsp">
+        <h2>vira lsp</h2>
+        <p>Uruchamia <code>hyperls</code> (serwer LSP) i przezroczyście przekazuje mu stdio - do skonfigurowania jako language server w edytorze.</p>
+        <table>
+          <tr><th>Funkcja LSP</th><th>Status</th></tr>
+          <tr><td>Diagnostyka na żywo (parser + checker)</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Formatowanie dokumentu</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Hover + go-to-definition (deklaracje top-level)</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Completion (świadomość zasięgów lokalnych)</td><td><span class="status-badge todo">nie zaczęte</span></td></tr>
+        </table>
+      </section>
+
+      <section id="publish">
+        <h2>vira publish</h2>
+        <pre><code>$ vira publish                       # publikuje do npm
+$ vira publish --registry jsr        # publikuje do JSR
+$ vira publish --registry all        # oba</code></pre>
+        <p>Generuje <code>package.json</code>/<code>jsr.json</code> z <code>vira.yml</code> i deleguje do <code>npm publish</code> / <code>npx jsr publish</code>. Uwierzytelnienie (npm login, token JSR) to odpowiedzialność użytkownika - vira tego nie robi za niego.</p>
+      </section>
+
+      <section id="registries">
+        <h2>npm / JSR / vira.io</h2>
+        <table>
+          <tr><th>Prefiks</th><th>Rejestr</th><th>Status</th></tr>
+          <tr><td><i>brak</i></td><td>npm (registry.npmjs.org)</td><td><span class="status-badge done">przetestowane realnie</span></td></tr>
+          <tr><td><code>jsr:</code></td><td>JSR przez warstwę kompatybilności npm.jsr.io</td><td><span class="status-badge partial">napisane analogicznie do npm, nieprzetestowane w tym środowisku</span></td></tr>
+          <tr><td><code>vira:</code></td><td>vira.io - jeden plik JSON z listą repozytoriów git</td><td><span class="status-badge done">przetestowane realnie</span></td></tr>
+        </table>
+        <p>Indeks vira.io to pojedynczy plik utrzymywany na GitHubie:</p>
+        <pre><code>https://github.com/vira-io/repository/blob/main/repo-list.json</code></pre>
+        <pre><code>{
+  "libraries": [
+    { "nidus": "przykladowe-repo.git" }
+  ]
+}</code></pre>
+        <div class="note warn">Pakiety z vira.io to dziś surowe repozytoria git bez wersjonowania semver - "wersja" to zawsze najnowszy stan gałęzi domyślnej (oznaczana jako <code>git</code> w <code>vira.lock</code>).</div>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Hyper Lang &middot; MIT &middot; v0.1</div>
+    <div>
+      <a href="home.html">Start</a> &middot;
+      <a href="docs.html">Dokumentacja</a> &middot;
+      <a href="https://github.com/hyperlang-dev/hyper-lang">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var input = document.getElementById('docsearch');
+  var emptyMsg = document.getElementById('docsearch-empty');
+  if (!input) return;
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.doc-nav a[href^="#"]'));
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.doc-content > section'));
+
+  input.addEventListener('input', function () {
+    var q = input.value.trim().toLowerCase();
+    var anyVisible = false;
+
+    sections.forEach(function (section) {
+      var match = q === '' || section.textContent.toLowerCase().indexOf(q) !== -1;
+      section.hidden = !match;
+    });
+    navLinks.forEach(function (link) {
+      var id = link.getAttribute('href').slice(1);
+      var section = document.getElementById(id);
+      var visible = !section || !section.hidden;
+      link.hidden = !visible;
+      if (visible) anyVisible = true;
+    });
+    Array.prototype.slice.call(document.querySelectorAll('.doc-nav-group')).forEach(function (group) {
+      var links = group.querySelectorAll('a');
+      var allHidden = Array.prototype.every.call(links, function (l) { return l.hidden; });
+      group.dataset.empty = allHidden ? 'true' : 'false';
+    });
+    emptyMsg.hidden = anyVisible || q === '';
+  });
+})();
+</script>
+</body>
+</html>
