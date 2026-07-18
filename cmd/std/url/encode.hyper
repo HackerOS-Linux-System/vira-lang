@@ -1,0 +1,6 @@
+pub fn urlEncode(s: string) -> string {
+    return encodeURIComponent(s)
+}
+pub fn urlDecode(s: string) -> string {
+    return decodeURIComponent(s)
+}
