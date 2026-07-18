@@ -1,0 +1,48 @@
+// traits_and_generics.hyper - trait, impl Trait for X, generyki (JSDoc)
+
+trait Describable {
+  fn describe(self) -> string
+}
+
+struct Circle {
+  radius: f64,
+}
+
+struct Square {
+  side: f64,
+}
+
+impl Describable for Circle {
+  fn describe(self) -> string {
+    return `Koło o promieniu ${self.radius}`
+  }
+}
+
+impl Describable for Square {
+  fn describe(self) -> string {
+    return `Kwadrat o boku ${self.side}`
+  }
+}
+
+// generyk - hyperc emituje JSDoc (@template/@param/@returns), więc edytor
+// nadal podpowiada typy mimo że w runtime generyki są usuwane (tak samo
+// jak w tsc - JS jest dynamicznie typowany)
+fn firstOrDefault<T>(items: T[], fallback: T) -> T {
+  if items.length > 0 {
+    return items[0]
+  }
+  return fallback
+}
+
+fn main() {
+  let shapes = [Circle { radius: 2.0 }, Square { side: 3.0 }]
+  for shape in shapes {
+    console.log(shape.describe())
+  }
+
+  let names = ["Ada", "Grace", "Alan"]
+  console.log(firstOrDefault(names, "brak"))
+  console.log(firstOrDefault([], "brak"))
+}
+
+main()
