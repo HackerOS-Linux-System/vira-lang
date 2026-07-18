@@ -13,7 +13,9 @@ sha256sums=('SKIP')
 build() {
   cd "hyper-lang-${pkgver}"
   cd src
-  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${pkgver}" -o hyperc .
+  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${pkgver}" -o hyperc ./hyperc
+  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o hyperfmt ./hyperfmt
+  CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o hyperls ./hyperls
 }
 
 check() {
@@ -24,6 +26,8 @@ check() {
 package() {
   cd "hyper-lang-${pkgver}"
   install -Dm755 src/hyperc "$pkgdir/usr/bin/hyperc"
+  install -Dm755 src/hyperfmt "$pkgdir/usr/bin/hyperfmt"
+  install -Dm755 src/hyperls "$pkgdir/usr/bin/hyperls"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 README.adoc "$pkgdir/usr/share/doc/${pkgname}/README.adoc"
 }
