@@ -1,47 +1,25 @@
+import { execSync } from "child_process"
 import { writeFileSync } from "fs"
 
-struct PageSection {
-    title: string,
-    body: string,
-}
-
-fn renderSection(section: PageSection) -> string {
-    return `<section>
-      <h2>${section.title}</h2>
-      <p>${section.body}</p>
-    </section>`
-}
-
-fn renderPage(sections: any) -> string {
-    let mut html = `<!DOCTYPE html>
-<html lang="pl">
-<head>
-  <meta charset="utf-8">
-  <title>Hyper Lang</title>
-</head>
-<body>
-  <h1>Hyper Lang</h1>
-  <p>Statycznie typowany język transpilowany do JavaScript.</p>
-`
-    for section in sections {
-        html = html + renderSection(section)
+fn gitCommitHash() -> string {
+    try {
+        return execSync("git rev-parse --short HEAD").toString().trim()
+    } catch (e) {
+        return "unknown"
     }
-    html = html + `
-</body>
-</html>
-`
-    return html
 }
 
 fn main() {
-    let sections = [
-        PageSection { title: "Natywna obsługa JS/TS", body: "Import bibliotek npm bez wrapperów i plików .d.ts pisanych ręcznie." },
-        PageSection { title: "Statyczne typowanie", body: "struct, enum z danymi, trait, generyki - sprawdzane przez hyperc przed transpilacją." },
-        PageSection { title: "vira", body: "Menedżer pakietów inspirowany Cargo, napisany w samym Hyper Lang." },
-    ]
-    let html = renderPage(sections)
-    writeFileSync("website/index.html", html)
-    console.log("build.hyper: zapisano website/index.html")
+    let commit = gitCommitHash()
+    let now = new Date()
+
+    let generated = `// PLIK WYGENEROWANY PRZEZ build.hyper - NIE EDYTUJ RĘCZNIE
+export const BUILD_COMMIT = "${commit}";
+export const BUILD_TIME = "${now.toISOString()}";
+`
+
+    writeFileSync("src/build_info.gen.js", generated)
+    console.log(`build.hyper: zapisano src/build_info.gen.js (commit ${commit})`)
 }
 
 main()
