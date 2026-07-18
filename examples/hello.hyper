@@ -1,63 +1,65 @@
+// hello.hyper - demo kluczowych cech Hyper Lang
+
 struct Point {
-    x: f64,
-    y: f64,
+  x: f64,
+  y: f64,
 }
 
 impl Point {
-    fn length(self) -> f64 {
-        return self.x * self.x + self.y * self.y
-    }
+  fn length(self) -> f64 {
+    return self.x * self.x + self.y * self.y
+  }
 
-    fn describe(self) -> string {
-        return `Point(${self.x}, ${self.y})`
-    }
+  fn describe(self) -> string {
+    return `Point(${self.x}, ${self.y})`
+  }
 }
 
 enum Shape {
-    Circle(radius: f64),
-    Rectangle(width: f64, height: f64),
-    Triangle(base: f64, height: f64),
+  Circle(radius: f64),
+  Rectangle(width: f64, height: f64),
+  Triangle(base: f64, height: f64),
 }
 
 fn area(shape: Shape) -> f64 {
-    return match shape {
-        Circle(r) => 3.14159 * r * r,
-        Rectangle(w, h) => w * h,
-        Triangle(b, h) => 0.5 * b * h,
-    }
+  return match shape {
+    Circle(r) => 3.14159 * r * r,
+    Rectangle(w, h) => w * h,
+    Triangle(b, h) => 0.5 * b * h,
+  }
 }
 
 fn greet(name: string = "World") -> string => `Hello, ${name}!`
 
 fn safeName(user: any) -> string {
-    let name = user?.name ?? "Anonymous"
-    return name
+  let name = user?.name ?? "Anonymous"
+  return name
 }
 
 async fn main() {
-    let p: Point = Point { x: 3.0, y: 4.0 }
-    console.log(p.describe())
-    console.log(`Długość^2: ${p.length()}`)
+  let p: Point = Point { x: 3.0, y: 4.0 }
+  console.log(p.describe())
+  console.log(`Długość^2: ${p.length()}`)
 
-    let shapes = [
-        Shape.Circle(2.0),
-        Shape.Rectangle(3.0, 4.0),
-        Shape.Triangle(5.0, 6.0),
-    ]
+  let shapes = [
+    Shape.Circle(2.0),
+    Shape.Rectangle(3.0, 4.0),
+    Shape.Triangle(5.0, 6.0),
+  ]
 
-    for s in shapes {
-        console.log(`Pole: ${area(s)}`)
-    }
+  for s in shapes {
+    console.log(`Pole: ${area(s)}`)
+  }
 
-    console.log(greet())
-    console.log(greet("Hyper"))
-    console.log(safeName(null))
+  console.log(greet())
+  console.log(greet("Hyper"))
+  console.log(safeName(null))
 
-    let mut counter = 0
-    while counter < 3 {
-        console.log(`licznik = ${counter}`)
-        counter = counter + 1
-    }
+  let mut counter = 0
+  while counter < 3 {
+    console.log(`licznik = ${counter}`)
+    counter = counter + 1
+  }
 }
 
 main()
