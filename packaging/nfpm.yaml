@@ -17,6 +17,14 @@ contents:
     dst: /usr/bin/hyperc
     file_info:
       mode: 0755
+  - src: ./dist/hyperc-linux-${ARCH}/hyperfmt
+    dst: /usr/bin/hyperfmt
+    file_info:
+      mode: 0755
+  - src: ./dist/hyperc-linux-${ARCH}/hyperls
+    dst: /usr/bin/hyperls
+    file_info:
+      mode: 0755
   - src: ./LICENSE
     dst: /usr/share/doc/hyperc/LICENSE
   - src: ./README.adoc
