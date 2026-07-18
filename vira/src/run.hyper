@@ -1,0 +1,26 @@
+import { existsSync, mkdtempSync } from "fs"
+import path from "path"
+import os from "os"
+import { ConsoleReporter } from "./reporter.hyper"
+import { Manifest } from "./manifest.hyper"
+import { runShell } from "./build.hyper"
+
+pub fn cmdRun(args: any, manifest: Manifest, reporter: ConsoleReporter) {
+    let release = args.includes("--release")
+    let entry = "src/main.hyper"
+
+    if release {
+        let binaryPath = `dist/${manifest.name}`
+        if !existsSync(binaryPath) {
+            reporter.error(`brak zbudowanej binarki (${binaryPath}) - najpierw uruchom 'vira build --release'`)
+            return
+        }
+        runShell(binaryPath, reporter)
+        return
+    }
+
+    let tmpDir = mkdtempSync(path.join(os.tmpdir(), "vira-run-"))
+    let tmpFile = path.join(tmpDir, "bundle.mjs")
+    runShell(`hyperc ${entry} -o ${tmpFile}`, reporter)
+    runShell(`node ${tmpFile}`, reporter)
+}
