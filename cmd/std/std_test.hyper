@@ -1,0 +1,89 @@
+import { assertEqual } from "./testing/assertEqual.hyper"
+import { assertTrue } from "./testing/assertTrue.hyper"
+import { clamp } from "./math/clamp.hyper"
+import { lerp } from "./math/lerp.hyper"
+import { average, sum } from "./math/sum.hyper"
+import { isEven, isOdd } from "./math/isEven.hyper"
+import { absValue } from "./math/abs.hyper"
+import { roundTo } from "./math/round.hyper"
+import { capitalize, upper, lower } from "./string/case.hyper"
+import { trim } from "./string/trim.hyper"
+import { padStart, padEnd } from "./string/pad.hyper"
+import { contains, startsWith, endsWith } from "./string/contains.hyper"
+import { slugify } from "./string/slugify.hyper"
+import { chunk } from "./array/chunk.hyper"
+import { unique } from "./array/unique.hyper"
+import { first, last } from "./array/first.hyper"
+import { flatten } from "./array/flatten.hyper"
+import { zip } from "./array/zip.hyper"
+import { newStack } from "./collections/stack.hyper"
+import { newQueue } from "./collections/queue.hyper"
+import { newLinkedList } from "./collections/linkedlist.hyper"
+import { parseCsvLine } from "./csv/parseLine.hyper"
+import { toCsvRow } from "./csv/toRow.hyper"
+import { urlEncode, urlDecode } from "./url/encode.hyper"
+
+fn main() {
+    // math/
+    assertEqual(clamp(15.0, 0.0, 10.0), 10.0, "clamp górny limit")
+    assertEqual(clamp(-5.0, 0.0, 10.0), 0.0, "clamp dolny limit")
+    assertEqual(lerp(0.0, 10.0, 0.5), 5.0, "lerp środek")
+    assertEqual(sum([1, 2, 3, 4]), 10, "sum")
+    assertEqual(average([1, 2, 3, 4]), 2.5, "average")
+    assertTrue(isEven(4), "isEven(4)")
+    assertTrue(isOdd(3), "isOdd(3)")
+    assertEqual(absValue(-5.0), 5.0, "absValue")
+    assertEqual(roundTo(3.14159, 2), 3.14, "roundTo")
+
+    // string/
+    assertEqual(capitalize("hyper"), "Hyper", "capitalize")
+    assertEqual(upper("abc"), "ABC", "upper")
+    assertEqual(lower("ABC"), "abc", "lower")
+    assertEqual(trim("  x  "), "x", "trim")
+    assertEqual(padStart("7", 3, "0"), "007", "padStart")
+    assertEqual(padEnd("7", 3, "0"), "700", "padEnd")
+    assertTrue(contains("hyperlang", "lang"), "contains")
+    assertTrue(startsWith("hyperlang", "hyper"), "startsWith")
+    assertTrue(endsWith("hyperlang", "lang"), "endsWith")
+    assertEqual(slugify("  Hyper LANG! 2026  "), "hyper-lang-2026", "slugify")
+
+    // array/
+    assertEqual(JSON.stringify(chunk([1, 2, 3, 4, 5], 2)), "[[1,2],[3,4],[5]]", "chunk")
+    assertEqual(JSON.stringify(unique([1, 1, 2, 2, 3])), "[1,2,3]", "unique")
+    assertEqual(first([10, 20, 30]), 10, "first")
+    assertEqual(last([10, 20, 30]), 30, "last")
+    assertEqual(JSON.stringify(flatten([[1, 2], [3, [4, 5]]])), "[1,2,3,4,5]", "flatten")
+    assertEqual(JSON.stringify(zip([1, 2], ["a", "b"])), "[[1,\"a\"],[2,\"b\"]]", "zip")
+
+    // collections/
+    let s = newStack()
+    s.push(1)
+    s.push(2)
+    assertEqual(s.pop(), 2, "Stack.pop")
+    assertTrue(!s.isEmpty(), "Stack niepusty po jednym push")
+
+    let q = newQueue()
+    q.enqueue("a")
+    q.enqueue("b")
+    assertEqual(q.dequeue(), "a", "Queue FIFO")
+
+    let list = newLinkedList()
+    list.append(1)
+    list.append(2)
+    list.prepend(0)
+    assertEqual(JSON.stringify(list.toArray()), "[0,1,2]", "LinkedList append+prepend")
+    assertTrue(list.contains(1), "LinkedList.contains")
+    assertEqual(list.length, 3, "LinkedList.length")
+
+    // csv/
+    assertEqual(JSON.stringify(parseCsvLine("a, b ,c")), "[\"a\",\"b\",\"c\"]", "parseCsvLine")
+    assertEqual(toCsvRow(["a", "b", "c"]), "a,b,c", "toCsvRow")
+
+    // url/
+    assertEqual(urlEncode("a b&c"), "a%20b%26c", "urlEncode")
+    assertEqual(urlDecode("a%20b%26c"), "a b&c", "urlDecode")
+
+    console.log("wszystkie asercje przeszły (26 sprawdzeń)")
+}
+
+main()
