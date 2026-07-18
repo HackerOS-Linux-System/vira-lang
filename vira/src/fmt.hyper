@@ -1,0 +1,35 @@
+import { readdirSync, statSync } from "fs"
+import path from "path"
+import { ConsoleReporter } from "./reporter.hyper"
+import { runShell } from "./build.hyper"
+
+fn findHyperFiles(dir: string) -> any {
+    let mut results = []
+    let entries = readdirSync(dir)
+    for entry in entries {
+        let full = path.join(dir, entry)
+        let info = statSync(full)
+        if info.isDirectory() {
+            let nested = findHyperFiles(full)
+            for f in nested {
+                results.push(f)
+            }
+        } else if full.endsWith(".hyper") {
+            results.push(full)
+        }
+    }
+    return results
+}
+
+pub fn cmdFmt(args: any, reporter: ConsoleReporter) {
+    let checkOnly = args.includes("--check")
+    let files = findHyperFiles("src")
+    reporter.info(`znaleziono ${files.length} plików .hyper`)
+    for file in files {
+        if checkOnly {
+            runShell(`hyperfmt ${file} --check`, reporter)
+        } else {
+            runShell(`hyperfmt ${file}`, reporter)
+        }
+    }
+}
