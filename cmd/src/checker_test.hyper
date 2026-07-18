@@ -1,0 +1,75 @@
+import { check } from "./checker.hyper"
+
+fn expectErrorCount(label: string, source: string, expectedCount: i32) {
+    let errors = check(source)
+    let ok = errors.length == expectedCount
+
+    console.log(`${ok ? "OK" : "BŁĄD"}  ${label} (oczekiwano ${expectedCount}, otrzymano ${errors.length})`)
+    for e in errors {
+        console.log(`  - ${e.message}`)
+    }
+}
+
+fn main() {
+    expectErrorCount(
+        "poprawny program",
+        "fn add(a, b) { return a + b } fn main() { let x = add(1, 2) }",
+        0
+    )
+
+    expectErrorCount(
+        "nieznany identyfikator",
+        "fn main() { return unknownVar }",
+        1
+    )
+
+    expectErrorCount(
+        "zła arność wywołania",
+        "fn add(a, b) { return a + b } fn main() { let x = add(1) }",
+        1
+    )
+
+    expectErrorCount(
+        "przypisanie do niemutowalnej zmiennej",
+        "fn main() { let total = 0 total = total + 1 }",
+        1
+    )
+
+    expectErrorCount(
+        "mut pozwala na przypisanie (regresja - nie powinno być błędu)",
+        "fn main() { let mut total = 0 total = total + 1 }",
+        0
+    )
+
+    expectErrorCount(
+        "nieznany typ struct w literale",
+        "fn main() { let p = Circle { radius: 2.0 } }",
+        1
+    )
+
+    expectErrorCount(
+        "nieznany wariant enuma we wzorcu match",
+        "enum Shape { Circle(radius: f64) } fn describe(x) { return match x { Square(side) => side, _ => 0 } }",
+        1
+    )
+
+    expectErrorCount(
+        "znany wariant enuma we wzorcu match (regresja - nie powinno być błędu)",
+        "enum Shape { Circle(radius: f64) } fn describe(x) { return match x { Circle(r) => r, _ => 0 } }",
+        0
+    )
+
+    expectErrorCount(
+        "podwójna deklaracja funkcji",
+        "fn add(a, b) { return a + b } fn add(x, y) { return x }",
+        1
+    )
+
+    expectErrorCount(
+        "spread w wywołaniu wyłącza sprawdzanie arności (regresja - nie powinno być błędu)",
+        "fn add(a, b) { return a + b } fn main() { let xs = [1, 2] let x = add(...xs) }",
+        0
+    )
+}
+
+main()
