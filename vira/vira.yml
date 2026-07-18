@@ -1,1 +1,25 @@
+package:
+  name: vira
+  version: 0.0.1
+  license: MIT
+  description: >-
+    Menedżer pakietów i budowania Hyper Lang - instalacja zależności
+    (npm/JSR/vira.io), budowanie (zwykły .js albo samodzielna binarka),
+    uruchamianie, formatowanie, LSP i publikacja.
+  repository: https://github.com/hyperlang-dev/hyper-lang
 
+hyperc:
+  # Najniższa wersja hyperc, z którą ten pakiet jest przetestowany. Hyper
+  # Lang jest jeszcze przed 1.0, więc jedyna dostępna dziś wersja to 0.0.1 -
+  # to pole rośnie wraz z kompilatorem, tak jak `go 1.22` w go.mod wskazuje
+  # minimalną wersję Go, a nie "edycję" językową.
+  version: "0.0.1"
+
+dependencies:
+  js-yaml: "^4.1.0"
+
+dev-dependencies: {}
+
+bin:
+  # Punkt wejścia, z którego `vira build --release` buduje binarkę.
+  main: src/main.hyper
