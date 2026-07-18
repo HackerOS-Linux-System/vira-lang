@@ -1,0 +1,3 @@
+pub fn includes(items: any, value: any) -> bool {
+    return items.includes(value)
+}
