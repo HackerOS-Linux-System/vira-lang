@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dokumentacja — Hyper Lang</title>
+<meta name="description" content="Referencja języka Hyper Lang: typy, struct/enum/trait, match, obsługa błędów, moduły, generyki, natywna interoperacyjność z JS.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <nav class="nav wrap">
+    <a class="brand" href="home.html"><span class="dot">&gt;_</span> hyper-lang</a>
+    <div class="navlinks">
+      <a href="home.html">Start</a>
+      <a href="docs.html" class="current">Dokumentacja</a>
+      <a href="vira.html">vira</a>
+      <a href="https://github.com/hyperlang-dev/hyper-lang">GitHub</a>
+    </div>
+  </nav>
+</header>
+
+<main class="wrap">
+  <div class="docs-hero">
+    <h1>Dokumentacja języka</h1>
+    <p>Referencja Hyper Lang v0.1 - kompletna względem tego, co dziś faktycznie robi <code>hyperc</code>, ze świadomie oznaczonymi granicami tego, co jeszcze nie istnieje.</p>
+  </div>
+
+  <div class="docs-layout">
+    <nav class="doc-nav">
+      <input type="search" class="doc-search" id="docsearch" placeholder="Szukaj w dokumentacji..." aria-label="Szukaj w dokumentacji">
+      <div id="docsearch-empty" class="no-results" hidden>Brak wyników.</div>
+      <div class="doc-nav-group">
+        <h4>Start</h4>
+        <a href="#start">Instalacja i pierwszy plik</a>
+        <a href="#kompilator">hyperc</a>
+      </div>
+      <div class="doc-nav-group">
+        <h4>Język</h4>
+        <a href="#typy">Typy i zmienne</a>
+        <a href="#funkcje">Funkcje</a>
+        <a href="#struct">struct i impl</a>
+        <a href="#enum">enum i match</a>
+        <a href="#trait">trait</a>
+        <a href="#bledy">Obsługa błędów</a>
+        <a href="#destrukturyzacja">Destrukturyzacja</a>
+        <a href="#generyki">Generyki</a>
+        <a href="#interop">Interoperacyjność z JS</a>
+      </div>
+      <div class="doc-nav-group">
+        <h4>Projekty</h4>
+        <a href="#moduly">Moduły i pub</a>
+        <a href="#checker">Checker i diagnostyka</a>
+        <a href="#stan">Stan implementacji</a>
+      </div>
+    </nav>
+
+    <div class="doc-content">
+
+      <section id="start">
+        <h2>Instalacja i pierwszy plik</h2>
+        <p><code>hyperc</code> to pojedyncza binarka Go, bez zależności runtime poza samym Node.js do uruchamiania wygenerowanego JS.</p>
+        <pre><code>go build -o hyperc ./src/hyperc
+go build -o hyperfmt ./src/hyperfmt
+go build -o hyperls ./src/hyperls</code></pre>
+        <pre><code>// hello.hyper
+fn greet(name: string = "World") -&gt; string =&gt; `Hello, ${name}!`
+
+fn main() {
+    console.log(greet())
+    console.log(greet("Hyper"))
+}
+
+main()</code></pre>
+        <pre><code>$ hyperc hello.hyper -o hello.js
+$ node hello.js
+Hello, World!
+Hello, Hyper!</code></pre>
+        <div class="note">Na co dzień lepiej używać <code>vira run</code> zamiast ręcznego <code>hyperc</code> + <code>node</code> - patrz <a href="vira.html">dokumentacja vira</a>.</div>
+      </section>
+
+      <section id="kompilator">
+        <h2>hyperc</h2>
+        <p><code>hyperc</code> robi <b>wyłącznie kompilację</b>. Żadnych podkomend <code>build</code>/<code>run</code>/<code>fmt</code>/<code>lsp</code> - te żyją w <code>vira</code>, dokładnie jak <code>gofmt</code>/<code>gopls</code> są osobnymi binarkami od <code>go</code>.</p>
+        <table>
+          <tr><th>Flaga</th><th>Znaczenie</th></tr>
+          <tr><td><code>-o &lt;plik&gt;</code></td><td>zapisz JS do pliku zamiast na stdout</td></tr>
+          <tr><td><code>--check</code></td><td>tylko parsuj i sprawdź typy, nic nie emituj</td></tr>
+          <tr><td><code>--json</code></td><td>diagnostyki jako JSON (do narzędzi, np. vira/LSP)</td></tr>
+        </table>
+      </section>
+
+      <section id="typy">
+        <h2>Typy i zmienne</h2>
+        <p>Domyślnie niemutowalne, jak w Rust - <code>let mut</code> włącza mutowalność. Typy prymitywne: <code>i8..i64</code>, <code>u8..u64</code>, <code>f32</code>, <code>f64</code>, <code>string</code>, <code>bool</code>, <code>any</code>, <code>void</code>.</p>
+        <pre><code>let name: string = "Hyper"     // niemutowalna
+let mut counter: i32 = 0        // mutowalna
+counter = counter + 1
+
+const VERSION = "0.1.0"         // zawsze niemutowalna</code></pre>
+        <p>Adnotacje typów są dziś <b>weryfikowane dla literałów i prostych łańcuchów wywołań</b>, ale nie ma jeszcze pełnej unifikacji typów (patrz <a href="#stan">Stan implementacji</a>).</p>
+      </section>
+
+      <section id="funkcje">
+        <h2>Funkcje</h2>
+        <pre><code>fn add(a: i32, b: i32) -&gt; i32 {
+    return a + b
+}
+
+// forma wyrażeniowa
+fn double(x: i32) -&gt; i32 =&gt; x * 2
+
+// parametry domyślne, async/await
+async fn fetchJson(url: string) -&gt; any {
+    let res = await fetch(url)
+    return await res.json()
+}</code></pre>
+      </section>
+
+      <section id="struct">
+        <h2>struct i impl</h2>
+        <p>Kompiluje się do zwykłej klasy JS. Metody w <code>impl</code> dopisywane są do prototypu.</p>
+        <pre><code>struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn length(self) -&gt; f64 {
+        return Math.sqrt(self.x * self.x + self.y * self.y)
+    }
+}
+
+let p = Point { x: 3.0, y: 4.0 }
+console.log(p.length())</code></pre>
+        <div class="note">Wewnątrz metod <code>self</code> jest statycznie rozpoznawane i tłumaczone na <code>this</code> - również wewnątrz template literali.</div>
+      </section>
+
+      <section id="enum">
+        <h2>enum i match</h2>
+        <p>Algebraiczne typy danych (ADT) kompilowane do klasy z tagiem + statycznymi fabrykami wariantów. <code>match</code> kompiluje się do IIFE z destrukturyzacją pól.</p>
+        <pre><code>enum Shape {
+    Circle(radius: f64),
+    Rectangle(width: f64, height: f64),
+}
+
+fn area(shape: Shape) -&gt; f64 {
+    return match shape {
+        Circle(r) =&gt; 3.14159 * r * r,
+        Rectangle(w, h) =&gt; w * h,
+    }
+}</code></pre>
+        <div class="note">Checker ostrzega (nie blokuje kompilacji), jeśli <code>match</code> nad znanym enumem nie jest wyczerpujący - dodaj brakujące warianty albo klauzulę <code>_</code>.</div>
+      </section>
+
+      <section id="trait">
+        <h2>trait</h2>
+        <p>Kontrakt strukturalny egzekwowany przez checker: <code>impl Trait for X</code> musi zaimplementować każdą metodę zadeklarowaną w <code>trait</code>, inaczej kompilacja się nie powiedzie.</p>
+        <pre><code>trait Reporter {
+    fn info(self, msg: string) -&gt; void
+    fn error(self, msg: string) -&gt; void
+}
+
+struct ConsoleReporter { prefix: string }
+
+impl Reporter for ConsoleReporter {
+    fn info(self, msg: string) -&gt; void {
+        console.log(`${self.prefix} ${msg}`)
+    }
+    fn error(self, msg: string) -&gt; void {
+        console.error(`${self.prefix} ✗ ${msg}`)
+    }
+}</code></pre>
+      </section>
+
+      <section id="bledy">
+        <h2>Obsługa błędów</h2>
+        <pre><code>fn withdraw(balance: f64, amount: f64) -&gt; f64 {
+    if amount &gt; balance {
+        throw new Error(`za mało środków`)
+    }
+    return balance - amount
+}
+
+try {
+    withdraw(100.0, 1000.0)
+} catch (e) {
+    console.log(`złapano: ${e.message}`)
+} finally {
+    console.log("gotowe")
+}</code></pre>
+      </section>
+
+      <section id="destrukturyzacja">
+        <h2>Destrukturyzacja</h2>
+        <pre><code>let { x, y: ypsylon } = point
+let [first, second, ...reszta] = tablica
+
+let base = { a: 1, b: 2 }
+let extended = { ...base, c: 3 }
+let combined = [...tablica, 60, 70]</code></pre>
+      </section>
+
+      <section id="generyki">
+        <h2>Generyki</h2>
+        <p>Generyki są parsowane i (celowo, jak w <code>tsc</code>) usuwane w czasie transpilacji - JS jest dynamicznie typowany, więc runtime i tak by ich nie użył. hyperc emituje za to <b>JSDoc</b> (<code>@template</code>/<code>@param</code>/<code>@returns</code>), dzięki czemu edytor nadal podpowiada typy w wygenerowanym pliku.</p>
+        <pre><code>fn firstOrDefault&lt;T&gt;(items: T[], fallback: T) -&gt; T {
+    if items.length &gt; 0 { return items[0] }
+    return fallback
+}</code></pre>
+      </section>
+
+      <section id="interop">
+        <h2>Interoperacyjność z JS</h2>
+        <p>Rdzeń obietnicy Hyper Lang: <code>import</code> trafia 1:1 do ESM, bez pisania ani utrzymywania osobnych plików <code>.d.ts</code>.</p>
+        <pre><code>import { readFileSync } from "fs"
+import path from "path"
+import { load as parseYaml } from "js-yaml"  // alias przez `as`
+
+let data = parseYaml(readFileSync("config.yml", "utf8"))</code></pre>
+        <p>Słowa kluczowe są legalnymi nazwami właściwości po <code>.</code> (jak w JS) - <code>promise.catch(...)</code> działa mimo że <code>catch</code> jest zarezerwowanym słowem gdzie indziej.</p>
+      </section>
+
+      <section id="moduly">
+        <h2>Moduły i pub</h2>
+        <p>Lokalne importy (<code>./</code> lub <code>../</code>) są rozwiązywane przez bundler i scalane w jedną przestrzeń nazw. Deklaracje bez <code>pub</code> są prywatne dla pliku, w którym powstały - checker to egzekwuje.</p>
+        <pre><code>// geometry.hyper
+pub struct Rectangle { width: f64, height: f64 }
+fn internalHelper() -&gt; string { ... }   // prywatne
+
+// main.hyper
+import { Rectangle } from "./geometry.hyper"
+import { internalHelper } from "./geometry.hyper"  // błąd kompilatora</code></pre>
+        <div class="note warn">Cykle importów i kolizje nazw między plikami są wykrywane jako błędy kompilatora przed wygenerowaniem JS, nie jako runtime crash.</div>
+      </section>
+
+      <section id="checker">
+        <h2>Checker i diagnostyka</h2>
+        <p>Diagnostyki niosą numer linii, kolumnę i <b>ścieżkę pliku źródłowego</b> (nawet gdy błąd jest w zaimportowanym module, nie w pliku wejściowym).</p>
+        <pre><code>$ hyperc main.hyper
+math_utils.hyper:error:8:16: niezdefiniowany identyfikator `sqrt`
+  8 |         return sqrt(self.x * self.x)
+                     ^
+hyperc: kompilacja przerwana - błędy w main.hyper</code></pre>
+        <p>Sprawdzane dziś: arność wywołań (w tym metod), niemutowalność, istnienie pól/metod na znanych strukturach, zgodność traitów, wyczerpujący <code>match</code>, widoczność <code>pub</code>, podstawowa zgodność typów prymitywnych w przypisaniach i łańcuchach wywołań.</p>
+      </section>
+
+      <section id="stan">
+        <h2>Stan implementacji</h2>
+        <table>
+          <tr><th>Funkcja</th><th>Status</th></tr>
+          <tr><td>Lekser, parser, codegen</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Moduły między plikami (<code>./x.hyper</code>)</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Walidacja, że zaimportowana nazwa istnieje w module źródłowym</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td><code>throw</code>/<code>try</code>/<code>catch</code>/<code>finally</code></td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Destrukturyzacja, spread, literały obiektu, ternary</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Egzekwowanie <code>pub</code> między modułami</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Diagnostyki z poprawną ścieżką pliku</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>LSP: hover + go-to-definition (deklaracje top-level)</td><td><span class="status-badge done">gotowe</span></td></tr>
+          <tr><td>Inferencja typów przez proste przypisania i wywołania metod</td><td><span class="status-badge partial">częściowe</span></td></tr>
+          <tr><td>Generyki z ograniczeniami (<code>T: Trait</code>)</td><td><span class="status-badge todo">parsowane, nieegzekwowane</span></td></tr>
+          <tr><td>Pełna unifikacja typów, unie/przecięcia typów</td><td><span class="status-badge todo">nie zaczęte</span></td></tr>
+          <tr><td>Sourcemapy (stack trace wskazujący na .hyper)</td><td><span class="status-badge todo">nie zaczęte</span></td></tr>
+          <tr><td>LSP: completion (świadomość zasięgów lokalnych)</td><td><span class="status-badge todo">nie zaczęte</span></td></tr>
+          <tr><td>Formatter jako pełny pretty-printer</td><td><span class="status-badge partial">tylko re-indent</span></td></tr>
+          <tr><td>Bootstrapping (hyperc w Hyper Lang) - lekser</td><td><span class="status-badge partial">v0.3: słowa kluczowe, operatory wieloznaczne, float/notacja wykładnicza, sekwencje ucieczki</span></td></tr>
+          <tr><td>Bootstrapping (hyperc w Hyper Lang) - parser wyrażeń</td><td><span class="status-badge partial">drugi kanarek: precedence climbing</span></td></tr>
+          <tr><td>Bootstrapping (hyperc w Hyper Lang) - parser instrukcji/deklaracji</td><td><span class="status-badge partial">trzeci kanarek v0.3: niemal cała gramatyka wyrażeń/instrukcji, patrz cmd/README.adoc</span></td></tr>
+          <tr><td>Bootstrapping (hyperc w Hyper Lang) - checker</td><td><span class="status-badge partial">czwarty kanarek: sprawdzanie istnienia nazw i mutowalności, bez inferencji typów</span></td></tr>
+          <tr><td>Bootstrapping (hyperc w Hyper Lang) - codegen</td><td><span class="status-badge partial">piąty kanarek: generuje JS (struct→klasa, enum→fabryki, match→IIFE), bez pretty-printingu</span></td></tr>
+          <tr><td>Bootstrapping (hyperc w Hyper Lang) - bundler</td><td><span class="status-badge partial">szósty kanarek: DFS/cykle importów działają, bez integracji z prawdziwym systemem plików</span></td></tr>
+        </table>
+        <p>Szczegóły i uzasadnienia - patrz <code>cmd/README.adoc</code> w repozytorium (kanarki bootstrapu) oraz główny <code>README.adoc</code>.</p>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Hyper Lang &middot; MIT &middot; v0.1</div>
+    <div>
+      <a href="home.html">Start</a> &middot;
+      <a href="vira.html">vira</a> &middot;
+      <a href="https://github.com/hyperlang-dev/hyper-lang">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var input = document.getElementById('docsearch');
+  var emptyMsg = document.getElementById('docsearch-empty');
+  if (!input) return;
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.doc-nav a[href^="#"]'));
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.doc-content > section'));
+
+  input.addEventListener('input', function () {
+    var q = input.value.trim().toLowerCase();
+    var anyVisible = false;
+
+    sections.forEach(function (section) {
+      var match = q === '' || section.textContent.toLowerCase().indexOf(q) !== -1;
+      section.hidden = !match;
+    });
+    navLinks.forEach(function (link) {
+      var id = link.getAttribute('href').slice(1);
+      var section = document.getElementById(id);
+      var visible = !section || !section.hidden;
+      link.hidden = !visible;
+      if (visible) anyVisible = true;
+    });
+    Array.prototype.slice.call(document.querySelectorAll('.doc-nav-group')).forEach(function (group) {
+      var links = group.querySelectorAll('a');
+      var allHidden = Array.prototype.every.call(links, function (l) { return l.hidden; });
+      group.dataset.empty = allHidden ? 'true' : 'false';
+    });
+    emptyMsg.hidden = anyVisible || q === '';
+  });
+})();
+</script>
+</body>
+</html>
