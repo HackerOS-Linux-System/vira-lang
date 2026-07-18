@@ -1,0 +1,341 @@
+import { parseProgram } from "./stmt_parser.hyper"
+
+pub struct Codegen {
+    variantFields: any, // Map<string, string[]> - patrz decyzja (3) wyżej
+}
+
+impl Codegen {
+    // --- rejestracja wariantów enuma (potrzebna do bindingów w match) --
+
+    fn registerEnums(self, program: any) {
+        for stmt in program {
+            if stmt.tag == "EnumDecl" {
+                for variant in stmt.variants {
+                    let mut names = []
+                    for f in variant.fields {
+                        names.push(f.name)
+                    }
+                    self.variantFields.set(variant.name, names)
+                }
+            }
+        }
+    }
+
+    // --- wyrażenia -----------------------------------------------------
+
+    fn emitExprList(self, exprs: any) -> string {
+        let mut parts = []
+        for e in exprs {
+            parts.push(self.emitExpr(e))
+        }
+        return parts.join(", ")
+    }
+
+    fn emitExpr(self, node: any) -> string {
+        if node.tag == "NumberLit" {
+            return node.value
+        }
+        if node.tag == "StringLit" {
+            // Korzystamy z JSON.stringify runtime'u JS do escapowania,
+            // zamiast reimplementować escaping ręcznie - to i tak
+            // dokładnie ten sam escaping, którego oczekuje docelowy
+            // JS.
+            return `JSON.stringify(${self.stringLitRaw(node.value)})`
+        }
+        if node.tag == "BoolLit" {
+            return `${node.value}`
+        }
+        if node.tag == "NullLit" {
+            return "null"
+        }
+        if node.tag == "Ident" {
+            return node.name == "self" ? "this" : node.name
+        }
+        if node.tag == "Unary" {
+            return `(${node.op}${self.emitExpr(node.operand)})`
+        }
+        if node.tag == "Binary" {
+            return `(${self.emitExpr(node.left)} ${node.op} ${self.emitExpr(node.right)})`
+        }
+        if node.tag == "Call" {
+            return `${self.emitExpr(node.callee)}(${self.emitExprList(node.args)})`
+        }
+        if node.tag == "New" {
+            return `new ${self.emitExpr(node.callee)}`
+        }
+        if node.tag == "Member" {
+            return `${self.emitExpr(node.object)}.${node.property}`
+        }
+        if node.tag == "OptionalMember" {
+            return `${self.emitExpr(node.object)}?.${node.property}`
+        }
+        if node.tag == "Index" {
+            return `${self.emitExpr(node.object)}[${self.emitExpr(node.index)}]`
+        }
+        if node.tag == "ArrayLit" {
+            return `[${self.emitExprList(node.elements)}]`
+        }
+        if node.tag == "ObjectLit" {
+            let mut parts = []
+            for f in node.fields {
+                parts.push(`${f.name}: ${self.emitExpr(f.value)}`)
+            }
+            return `{ ${parts.join(", ")} }`
+        }
+        if node.tag == "StructLit" {
+            let mut parts = []
+            for f in node.fields {
+                parts.push(`${f.name}: ${self.emitExpr(f.value)}`)
+            }
+            return `new ${node.typeName}({ ${parts.join(", ")} })`
+        }
+        if node.tag == "Spread" {
+            return `...${self.emitExpr(node.value)}`
+        }
+        if node.tag == "Await" {
+            return `await ${self.emitExpr(node.operand)}`
+        }
+        if node.tag == "Match" {
+            return self.emitMatch(node)
+        }
+        throw new Error(`codegen: nieobsłużony węzeł wyrażenia '${node.tag}'`)
+    }
+
+    // stringLitRaw - StringLit.value pochodzi już z leksera z
+    // ZDEKODOWANYMI sekwencjami ucieczki (patrz lexer.hyper v0.3), więc
+    // podajemy je do JSON.stringify jako zwykły string do ponownego
+    // zakodowania - to jest string HYPER LANG w kodzie WYNIKOWYM
+    // (generujemy JS, który generuje wywołanie JSON.stringify na
+    // wartości znanej w czasie kompilacji, nie w runtime) - patrz
+    // "Czego tu brakuje": to jest nieco rozrzutne (JSON.stringify
+    // wywoływane w runtime zamiast zaszycia stałej), ale poprawne.
+    fn stringLitRaw(self, value: string) -> string {
+        return `"${value}"`
+    }
+
+    fn emitMatch(self, node: any) -> string {
+        let mut branches = []
+        for arm in node.arms {
+            let pat = arm.pattern
+            let mut cond = ""
+            let mut bindingsCode = ""
+            if pat.wildcard {
+                cond = "true"
+            } else if pat.variant != "" {
+                cond = `__subject.tag === "${pat.variant}"`
+                let hasDeclared = self.variantFields.has(pat.variant)
+                let declaredFields = hasDeclared ? self.variantFields.get(pat.variant) : []
+                let mut bindLines = []
+                let mut i = 0
+                while i < pat.bindings.length {
+                    let localName = pat.bindings[i]
+                    let fieldName = i < declaredFields.length ? declaredFields[i] : localName
+                    bindLines.push(`const ${localName} = __subject.${fieldName};`)
+                    i = i + 1
+                }
+                bindingsCode = bindLines.join(" ")
+            } else {
+                cond = `__subject === (${self.emitExpr(pat.literal)})`
+            }
+            let mut bodyCode = ""
+            if arm.body.tag == "Block" {
+                bodyCode = `(() => ${self.emitBlock(arm.body)})()`
+            } else {
+                bodyCode = self.emitExpr(arm.body)
+            }
+            branches.push(`if (${cond}) { ${bindingsCode} return ${bodyCode}; }`)
+        }
+        let branchesCode = branches.join(" ")
+        return `(() => { const __subject = ${self.emitExpr(node.subject)}; ${branchesCode} throw new Error("match: brak pasującego wzorca"); })()`
+    }
+
+    // --- instrukcje ------------------------------------------------
+
+    fn emitBlock(self, block: any) -> string {
+        let mut lines = []
+        for s in block.stmts {
+            lines.push(self.emitStmt(s))
+        }
+        return `{ ${lines.join(" ")} }`
+    }
+
+    // emitElseLike - `else` może prowadzić do bloku ALBO do kolejnego
+    // `if` (else-if) - dwa różne kształty AST, dwa różne sposoby
+    // renderowania (bez podwójnych klamer wokół łańcucha else-if).
+    fn emitElseLike(self, node: any) -> string {
+        if node.tag == "If" {
+            return self.emitStmt(node)
+        }
+        return self.emitBlock(node)
+    }
+
+    fn paramNames(self, params: any) -> string {
+        let mut names = []
+        for p in params {
+            names.push(p.name)
+        }
+        return names.join(", ")
+    }
+
+    fn emitStmt(self, node: any) -> string {
+        if node.tag == "Let" {
+            return `let ${node.name} = ${self.emitExpr(node.value)};`
+        }
+        if node.tag == "LetDestructure" {
+            let open = node.isArray ? "[" : "{"
+            let close = node.isArray ? "]" : "}"
+            return `let ${open}${node.names.join(", ")}${close} = ${self.emitExpr(node.value)};`
+        }
+        if node.tag == "ExprStmt" {
+            return `${self.emitExpr(node.value)};`
+        }
+        if node.tag == "Return" {
+            if node.value == null {
+                return "return;"
+            }
+            return `return ${self.emitExpr(node.value)};`
+        }
+        if node.tag == "If" {
+            let mut out = `if (${self.emitExpr(node.cond)}) ${self.emitBlock(node.thenBlock)}`
+            if node.elseBlock != null {
+                out = `${out} else ${self.emitElseLike(node.elseBlock)}`
+            }
+            return out
+        }
+        if node.tag == "While" {
+            return `while (${self.emitExpr(node.cond)}) ${self.emitBlock(node.body)}`
+        }
+        if node.tag == "ForIn" {
+            return `for (const ${node.varName} of ${self.emitExpr(node.iterable)}) ${self.emitBlock(node.body)}`
+        }
+        if node.tag == "Block" {
+            return self.emitBlock(node)
+        }
+        if node.tag == "Break" {
+            return "break;"
+        }
+        if node.tag == "Continue" {
+            return "continue;"
+        }
+        if node.tag == "Throw" {
+            return `throw ${self.emitExpr(node.value)};`
+        }
+        if node.tag == "Try" {
+            let mut out = `try ${self.emitBlock(node.block)}`
+            if node.catchBlock != null {
+                if node.catchParam != "" {
+                    out = `${out} catch (${node.catchParam}) ${self.emitBlock(node.catchBlock)}`
+                } else {
+                    out = `${out} catch ${self.emitBlock(node.catchBlock)}`
+                }
+            }
+            if node.finallyBlock != null {
+                out = `${out} finally ${self.emitBlock(node.finallyBlock)}`
+            }
+            return out
+        }
+        if node.tag == "FnDecl" {
+            let kw = node.isAsync ? "async function" : "function"
+            return `${kw} ${node.name}(${self.paramNames(node.params)}) ${self.emitBlock(node.body)}`
+        }
+        if node.tag == "StructDecl" {
+            return `class ${node.name} { constructor(fields) { Object.assign(this, fields); } }`
+        }
+        if node.tag == "EnumDecl" {
+            let mut variantLines = []
+            for v in node.variants {
+                let mut fieldNames = []
+                for f in v.fields {
+                    fieldNames.push(f.name)
+                }
+                let paramsStr = fieldNames.join(", ")
+                let mut objParts = ["tag: \"" + v.name + "\""]
+                for fieldName in fieldNames {
+                    objParts.push(fieldName)
+                }
+                variantLines.push(`${v.name}: (${paramsStr}) => (({ ${objParts.join(", ")} }))`)
+            }
+            return `const ${node.name} = { ${variantLines.join(", ")} };`
+        }
+        if node.tag == "ImplDecl" {
+            let mut methodLines = []
+            for m in node.methods {
+                let mut jsParams = []
+                for p in m.params {
+                    if p.name != "self" {
+                        jsParams.push(p.name)
+                    }
+                }
+                let kw = m.isAsync ? "async function" : "function"
+                methodLines.push(`${node.typeName}.prototype.${m.name} = ${kw}(${jsParams.join(", ")}) ${self.emitBlock(m.body)};`)
+            }
+            return methodLines.join(" ")
+        }
+        if node.tag == "TraitDecl" {
+            // Erasure - traity nie mają reprezentacji w runtime JS w
+            // tym kanarku (patrz "Czego tu brakuje").
+            return ""
+        }
+        if node.tag == "ImportStmt" {
+            return `import { ${node.names.join(", ")} } from "${node.path}";`
+        }
+        if node.tag == "DeclareModule" {
+            // Deklaracja ambientowa - brak kodu wynikowego.
+            return ""
+        }
+        throw new Error(`codegen: nieobsłużony węzeł instrukcji '${node.tag}'`)
+    }
+
+    // --- program ---------------------------------------------------
+
+    pub fn emitProgram(self, program: any) -> string {
+        self.registerEnums(program)
+        let mut lines = []
+        for stmt in program {
+            let code = self.emitStmt(stmt)
+            if code != "" {
+                lines.push(code)
+            }
+        }
+        return lines.join("\n\n")
+    }
+}
+
+// generate - punkt wejścia dla już sparsowanego (np. przez bundler.hyper)
+// programu.
+pub fn generate(program: any) -> string {
+    let g = Codegen { variantFields: new Map() }
+    return g.emitProgram(program)
+}
+
+// compile - wygoda dla pojedynczego pliku: parsuje źródło i od razu
+// generuje JS. `import` w źródle jest emitowane 1:1 (patrz "Czego tu
+// brakuje") - do prawdziwego wielo-plikowego kompilowania służy
+// bundler.hyper + generate(), nie ta funkcja.
+pub fn compile(source: string) -> string {
+    let program = parseProgram(source)
+    return generate(program)
+}
+
+// --- Czego tu brakuje (świadomie, nie przez przeoczenie) ---------------
+//
+// Względem codegen.go (841 linii) w Go:
+//   - Generowanie JSDoc dla typów/generyków (`genJSDoc` w Go) - ten
+//     kanarek generuje CZYSTY JS bez żadnych adnotacji typów
+//   - Ścieżki `import` nie są przepisywane (`./lexer.hyper` zostaje
+//     `./lexer.hyper` w wyjściowym JS, zamiast np. `./lexer.js`) -
+//     nieistotne w trybie `generate(program)` po `bundler.hyper`
+//     (bundler i tak usuwa ImportStmt z połączonego programu), ale
+//     ISTOTNE dla samodzielnego `compile(source)` na pliku z importami
+//   - Brak wcięć/pretty-printingu (patrz decyzja projektowa 6 na
+//     początku pliku) - kod wynikowy jest poprawny, ale nieczytelny
+//     bez przepuszczenia przez zewnętrzny formatter
+//   - `StructLit`/`EnumDecl` zawsze generują runtime'owe fabryki/klasy,
+//     nawet gdy typy są w pełni znane statycznie - brak żadnej
+//     optymalizacji/inliningu (nie jest to nawet planowane - to
+//     kompilator do JS, nie do kodu maszynowego)
+//   - Sprawdzanie wyczerpywalności `match` w CZASIE KOMPILACJI - dziś
+//     niedopasowany `match` rzuca wyjątkiem dopiero w RUNTIME (patrz
+//     decyzja projektowa 3) - to bezpośrednia konsekwencja tego, że
+//     checker.hyper też tego nie sprawdza (patrz checker.hyper)
+// Każdy z powyższych to samodzielny, weryfikowalny przyrost.
