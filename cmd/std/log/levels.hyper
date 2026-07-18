@@ -1,0 +1,12 @@
+pub fn logInfo(msg: string) {
+    console.log(`[INFO] ${msg}`)
+}
+pub fn logWarn(msg: string) {
+    console.warn(`[WARN] ${msg}`)
+}
+pub fn logError(msg: string) {
+    console.error(`[ERROR] ${msg}`)
+}
+pub fn logDebug(msg: string) {
+    console.debug(`[DEBUG] ${msg}`)
+}
