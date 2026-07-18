@@ -1,0 +1,6 @@
+pub fn parseQuery(qs: string) -> any {
+    return Object.fromEntries(new URLSearchParams(qs))
+}
+pub fn buildQuery(params: any) -> string {
+    return new URLSearchParams(params).toString()
+}
