@@ -1,0 +1,105 @@
+import { compile } from "./codegen.hyper"
+
+fn check(label: string, source: string, expected: string) {
+    let actual = compile(source)
+    let ok = actual == expected
+
+    console.log(`${ok ? "OK" : "BŁĄD"}  ${label}`)
+    console.log(`  wygenerowano: ${actual}`)
+    if !ok {
+        console.log(`  oczekiwano:   ${expected}`)
+    }
+}
+
+fn checkContains(label: string, source: string, expectedSubstrings: any) {
+    let actual = compile(source)
+    let mut allFound = true
+    let mut missing = []
+    for sub in expectedSubstrings {
+        if !actual.includes(sub) {
+            allFound = false
+            missing.push(sub)
+        }
+    }
+
+    console.log(`${allFound ? "OK" : "BŁĄD"}  ${label}`)
+    console.log(`  wygenerowano: ${actual}`)
+    if !allFound {
+        console.log(`  brakujące fragmenty: ${missing.join(" | ")}`)
+    }
+}
+
+fn main() {
+    console.log("--- podstawowe konstrukcje (dokładne dopasowanie) ---")
+    check(
+        "prosta funkcja",
+        "fn add(a, b) { return a + b }",
+        "function add(a, b) { return (a + b); }"
+    )
+    check(
+        "string literal (JSON.stringify)",
+        "fn greet(name) { return \"hello \" + name }",
+        "function greet(name) { return (JSON.stringify(\"hello \") + name); }"
+    )
+    check(
+        "if/else",
+        "fn abs(x) { if x < 0 { return -x } else { return x } }",
+        "function abs(x) { if ((x < 0)) { return (-x); } else { return x; } }"
+    )
+
+    console.log("\n--- enum + match (kluczowe fragmenty) ---")
+    checkContains(
+        "enum jako fabryki + match jako IIFE z bindingiem pozycyjnym",
+        "enum Shape { Circle(radius: f64), Square(side: f64) } fn area(s) { return match s { Circle(r) => r * r, Square(side) => side * side, _ => 0 } }",
+        [
+            "const Shape = {",
+            "Circle: (radius) =>",
+            "tag: \"Circle\", radius",
+            "Square: (side) =>",
+            "tag: \"Square\", side",
+            "__subject.tag === \"Circle\"",
+            "const r = __subject.radius;",
+            "return (r * r);",
+            "__subject.tag === \"Square\"",
+            "const side = __subject.side;",
+            "return (side * side);",
+            "throw new Error(\"match: brak pasującego wzorca\");"
+        ]
+    )
+
+    console.log("\n--- struct + impl + literał struct + wywołanie metody ---")
+    checkContains(
+        "struct jako klasa, impl jako metoda na prototypie, self -> this",
+        "struct Circle { radius: f64 } impl Circle { fn area(self) { return self.radius * self.radius } } fn main() { let c = Circle { radius: 2.0 } return c.area() }",
+        [
+            "class Circle { constructor(fields) { Object.assign(this, fields); } }",
+            "Circle.prototype.area = function() { return (this.radius * this.radius); };",
+            "let c = new Circle({ radius: 2.0 });",
+            "return c.area();"
+        ]
+    )
+
+    console.log("\n--- async/await, try/catch, for..in, optional chaining ---")
+    checkContains(
+        "async fn + await",
+        "async fn fetchData(url) { let result = await fetch(url) return result }",
+        ["async function fetchData(url)", "await fetch(url)"]
+    )
+    checkContains(
+        "try/catch/finally",
+        "fn safe() { try { risky() } catch (e) { log(e) } finally { cleanup() } }",
+        ["try { risky(); }", "catch (e) { log(e); }", "finally { cleanup(); }"]
+    )
+    checkContains(
+        "for..in",
+        "fn sumAll(xs) { for x in xs { total += x } }",
+        ["for (const x of xs) { (total += x); }"]
+    )
+    checkContains(
+        "optional chaining mapuje się 1:1 na JS",
+        "fn safeName(user) { return user?.profile?.name }",
+        ["return user?.profile?.name;"]
+    )
+}
+
+main()
