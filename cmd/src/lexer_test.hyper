@@ -1,0 +1,30 @@
+import { tokenize } from "./lexer.hyper"
+
+fn main() {
+    let source = "fn add(a, b) {\n    return a + b\n}"
+    let tokens = tokenize(source)
+
+    for tok in tokens {
+        console.log(`${tok.kind.tag}(${tok.kind.value}) @linia ${tok.line}`)
+    }
+
+    console.log(`\nRazem tokenów: ${tokens.length}`)
+
+    console.log("\n--- v0.2: słowa kluczowe, operatory wieloznakowe, float, template, apostrofy ---")
+    let extra = "let mut x: f64 = 3.14\nif x >= 1.5 && x != 0.0 {\n    x += 1.0\n}\nlet t = `wartość: ${x}`\nlet s = 'apostrof'\nlet spread = [...xs]"
+    let extraTokens = tokenize(extra)
+    for tok in extraTokens {
+        console.log(`${tok.kind.tag}(${tok.kind.value}) @linia ${tok.line}`)
+    }
+    console.log(`\nRazem tokenów: ${extraTokens.length}`)
+
+    console.log("\n--- v0.3: sekwencje ucieczki, notacja wykładnicza ---")
+    let v3 = "let msg = \"linia1\\nlinia2\\ttabulacja\"\nlet big = 1e10\nlet small = 1.5e-3\nlet plus = 2E+4"
+    let v3Tokens = tokenize(v3)
+    for tok in v3Tokens {
+        console.log(`${tok.kind.tag}(${tok.kind.value}) @linia ${tok.line}`)
+    }
+    console.log(`\nRazem tokenów: ${v3Tokens.length}`)
+}
+
+main()
