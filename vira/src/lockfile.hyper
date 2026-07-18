@@ -1,0 +1,15 @@
+import { writeFileSync } from "fs"
+
+pub fn writeLockfile(entries: any, lockPath: string) {
+    let mut content = "# vira.lock - WYGENEROWANY automatycznie przez `vira install`, nie edytuj ręcznie\n\n"
+    for entry in entries {
+        content = content + `[[package]]
+name = "${entry.name}"
+version = "${entry.version}"
+resolved = "${entry.resolved}"
+registry = "${entry.registry}"
+
+`
+    }
+    writeFileSync(lockPath, content)
+}
