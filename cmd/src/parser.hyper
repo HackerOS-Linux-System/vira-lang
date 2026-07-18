@@ -1,0 +1,123 @@
+import { tokenize } from "./lexer.hyper"
+
+enum ExprNode {
+    NumberLit(value: string),
+    Ident(name: string),
+    Binary(op: string, left: any, right: any),
+}
+
+pub struct Parser {
+    tokens: any,
+    pos: i32,
+}
+
+impl Parser {
+    fn current(self) -> any {
+        return self.tokens[self.pos]
+    }
+
+    fn advance(self) -> any {
+        let t = self.current()
+        self.pos = self.pos + 1
+        return t
+    }
+
+    // precedence zwraca siłę wiązania operatora - 0 oznacza "to nie jest
+    // operator binarny", więc pętla w parseExpr wie kiedy się zatrzymać.
+    fn precedence(self, op: string) -> i32 {
+        if op == "+" || op == "-" {
+            return 1
+        }
+        if op == "*" || op == "/" {
+            return 2
+        }
+        return 0
+    }
+
+    fn parsePrimary(self) -> any {
+        let tok = self.advance()
+
+        if tok.kind.tag == "Int" {
+            return ExprNode.NumberLit(tok.kind.value)
+        }
+        if tok.kind.tag == "Ident" {
+            return ExprNode.Ident(tok.kind.value)
+        }
+        if tok.kind.tag == "Op" && tok.kind.value == "(" {
+            let inner = self.parseExpr(0)
+            self.advance() // zamykający ")" - v0.1 kanarka nie waliduje że to naprawdę ")"
+            return inner
+        }
+
+        throw new Error(`parser: nieoczekiwany token ${tok.kind.tag}(${tok.kind.value}) w linii ${tok.line}`)
+    }
+
+    pub fn parseExpr(self, minPrec: i32) -> any {
+        let mut left = self.parsePrimary()
+
+        while true {
+            let tok = self.current()
+            if tok.kind.tag != "Op" {
+                break
+            }
+            let prec = self.precedence(tok.kind.value)
+            if prec == 0 || prec < minPrec {
+                break
+            }
+            let op = self.advance().kind.value
+            let right = self.parseExpr(prec + 1)
+            left = ExprNode.Binary(op, left, right)
+        }
+
+        return left
+    }
+}
+
+pub fn parseExpression(source: string) -> any {
+    let tokens = tokenize(source)
+    let p = Parser { tokens: tokens, pos: 0 }
+    return p.parseExpr(0)
+}
+
+// exprToString renderuje AST z powrotem do tekstu z JAWNYMI nawiasami -
+// najprostszy sposób na wizualne potwierdzenie, że precedencja jest
+// poprawna (to samo `2 + 3 * 4` powinno dać `(2 + (3 * 4))`, nie
+// `((2 + 3) * 4)`).
+pub fn exprToString(node: any) -> string {
+    if node.tag == "NumberLit" {
+        return node.value
+    }
+    if node.tag == "Ident" {
+        return node.name
+    }
+    if node.tag == "Binary" {
+        return `(${exprToString(node.left)} ${node.op} ${exprToString(node.right)})`
+    }
+    return "?"
+}
+
+// evalExpr - dowód, że drzewo jest nie tylko poprawnie ukształtowane, ale
+// też daje poprawny WYNIK liczbowy (to samo ryzyko co złapany wcześniej
+// błąd gubienia nawiasów w codegenie hyperc - stąd osobna, jawna weryfikacja).
+pub fn evalExpr(node: any) -> f64 {
+    if node.tag == "NumberLit" {
+        return parseFloat(node.value)
+    }
+    if node.tag == "Binary" {
+        let l = evalExpr(node.left)
+        let r = evalExpr(node.right)
+        if node.op == "+" {
+            return l + r
+        }
+        if node.op == "-" {
+            return l - r
+        }
+        if node.op == "*" {
+            return l * r
+        }
+        if node.op == "/" {
+            return l / r
+        }
+    }
+    throw new Error(`nie można obliczyć węzła: ${node.tag}`)
+}
