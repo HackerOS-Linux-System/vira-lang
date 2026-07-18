@@ -1,0 +1,105 @@
+import { bundleFiles, bundleCheckAndGenerate } from "./bundler.hyper"
+
+fn expectThrows(label: string, fileList: any, entryPath: string, expectedSubstring: string) {
+    let mut threw = false
+    let mut msg = ""
+    try {
+        bundleFiles(fileList, entryPath)
+    } catch (e) {
+        threw = true
+        msg = e.message
+    }
+    let ok = threw && msg.includes(expectedSubstring)
+
+    console.log(`${ok ? "OK" : "BŁĄD"}  ${label}`)
+    console.log(`  rzucono: ${threw}, komunikat: ${msg}`)
+}
+
+fn expectCompiles(label: string, fileList: any, entryPath: string, expectedFragments: any) {
+    let result = bundleCheckAndGenerate(fileList, entryPath)
+    let mut allFound = result.ok
+    let mut missing = []
+    if result.ok {
+        for frag in expectedFragments {
+            if !result.code.includes(frag) {
+                allFound = false
+                missing.push(frag)
+            }
+        }
+    }
+
+    console.log(`${allFound ? "OK" : "BŁĄD"}  ${label}`)
+    console.log(`  ok: ${result.ok}`)
+    console.log(`  kod: ${result.code}`)
+    if !allFound {
+        let mut errMsgs = []
+        for e in result.errors {
+            errMsgs.push(e.message)
+        }
+        if errMsgs.length > 0 {
+            console.log(`  błędy checkera: ${errMsgs.join(", ")}`)
+        } else {
+            console.log(`  brakujące fragmenty: ${missing.join(" | ")}`)
+        }
+    }
+}
+
+fn expectCheckerCatches(label: string, fileList: any, entryPath: string, expectedErrorCount: i32) {
+    let result = bundleCheckAndGenerate(fileList, entryPath)
+    let ok = !result.ok && result.errors.length == expectedErrorCount
+
+    console.log(`${ok ? "OK" : "BŁĄD"}  ${label}`)
+    console.log(`  ok: ${result.ok}, liczba błędów: ${result.errors.length}`)
+    for e in result.errors {
+        console.log(`  - ${e.message}`)
+    }
+}
+
+fn main() {
+    console.log("--- pełny pipeline: dwa pliki, bez cykli ---")
+    expectCompiles(
+        "lexer.hyper + main.hyper (main importuje tokenize)",
+        [
+            { path: "./lexer.hyper", source: "fn tokenize(x) { return x }" },
+            { path: "./main.hyper", source: "import { tokenize } from \"./lexer.hyper\" fn main() { return tokenize(1) }" }
+        ],
+        "./main.hyper",
+        [
+            "function tokenize(x) { return x; }",
+            "function main() { return tokenize(1); }"
+        ]
+    )
+
+    console.log("\n--- wykrywanie cykli importów ---")
+    expectThrows(
+        "a.hyper importuje b.hyper, b.hyper importuje a.hyper",
+        [
+            { path: "./a.hyper", source: "import { b } from \"./b.hyper\" fn a() { return b() }" },
+            { path: "./b.hyper", source: "import { a } from \"./a.hyper\" fn b() { return a() }" }
+        ],
+        "./a.hyper",
+        "cykl importów"
+    )
+
+    console.log("\n--- brakujący plik ---")
+    expectThrows(
+        "import wskazuje na plik którego nie ma w 'files'",
+        [
+            { path: "./main.hyper", source: "import { helper } from \"./missing.hyper\" fn main() { return helper() }" }
+        ],
+        "./main.hyper",
+        "nie znaleziono pliku"
+    )
+
+    console.log("\n--- checker łapie błąd MIĘDZY plikami po połączeniu ---")
+    expectCheckerCatches(
+        "wywołanie nieistniejącej funkcji",
+        [
+            { path: "./main.hyper", source: "fn main() { return helperThatDoesNotExist() }" }
+        ],
+        "./main.hyper",
+        1
+    )
+}
+
+main()
