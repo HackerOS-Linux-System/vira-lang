@@ -1,0 +1,9 @@
+pub fn chunk(items: any, size: i32) -> any {
+    let mut result = []
+    let mut i = 0
+    while i < items.length {
+        result.push(items.slice(i, i + size))
+        i = i + size
+    }
+    return result
+}
