@@ -5,27 +5,37 @@ workspace:
 package:
   name: hyper-lang
   version: 0.1.0
-  edition: "2026"
   license: MIT
   description: >-
     Hyper Lang - statycznie typowany język transpilowany do JavaScript,
     z natywną obsługą bibliotek JS/TS
-  repository: https://github.com/LegendaryOS-Linux-System/hyper-lang/
+  repository: https://github.com/hyperlang-dev/hyper-lang
+
+# Hyper Lang jest przed 1.0 i nie ma (jeszcze) koncepcji "edycji" językowej
+# jak Rust (edition = "2021") - zamiast tego, tak jak Go (`go 1.22` w
+# go.mod), po prostu wskazujemy minimalną wersję hyperc, z jaką pakiet
+# działa. Jedyna dostępna dziś wersja kompilatora to 0.0.1 - to pole
+# będzie rosło wraz z hyperc, nie jest datą ani nazwą edycji.
+hyperc:
+  version: "0.0.1"
 
 build:
   # hyperc jest kompilatorem hosta (bootstrap stage 0) - buduje się przez
-  # `go build`, nie przez samego siebie. Docelowo (patrz README, sekcja
-  # "co dalej") hyperc zostanie przepisany w Hyper Lang i będzie się
-  # budował przez własną poprzednią wersję.
+  # `go build`, nie przez samego siebie. cmd/ zawiera już pierwsze realne
+  # kroki w stronę pełnego bootstrapu (patrz cmd/README.adoc), ale hyperc
+  # produkcyjnie nadal jest budowany z Go, dopóki self-hosted kompilator
+  # nie osiągnie parytetu funkcjonalnego.
   host-compiler: go
   host-compiler-min-version: "1.22"
   target: es2022
   module: esm
 
 scripts:
-  build-compiler: go build -o bin/hyperc ./src
+  build-compiler: go build -o bin/hyperc ./src/hyperc
+  build-fmt: go build -o bin/hyperfmt ./src/hyperfmt
+  build-lsp: go build -o bin/hyperls ./src/hyperls
   test-compiler: go test ./src/...
-  build-vira: bin/hyperc build vira/src/main.hyper -o bin/vira.js
+  build-vira: bin/hyperc vira/src/main.hyper -o bin/vira.js
 
 dependencies: {}
 
