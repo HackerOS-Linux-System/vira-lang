@@ -1,0 +1,150 @@
+import { satisfies, maxSatisfying } from "./semver.hyper"
+
+pub struct ResolvedPackage {
+    name: string,
+    version: string,
+    resolved: string,
+    registry: string,
+}
+
+async fn fetchVersionsNpm(pkgName: string) -> any {
+    let url = `https://registry.npmjs.org/${pkgName}`
+    let res = await fetch(url)
+    if !res.ok {
+        throw new Error(`vira: nie znaleziono pakietu '${pkgName}' w npm (HTTP ${res.status})`)
+    }
+    let data = await res.json()
+    return Object.keys(data.versions)
+}
+
+// JSR udostępnia warstwę kompatybilności z npm pod npm.jsr.io - pakiet
+// @scope/nazwa jest tam dostępny jak zwykły pakiet npm, bez potrzeby Deno
+// czy osobnego klienta. To ten sam mechanizm, którego używa `npm install
+// jsr:@scope/nazwa` pod maską.
+async fn fetchVersionsJsr(pkgName: string) -> any {
+    let url = `https://npm.jsr.io/${pkgName}`
+    let res = await fetch(url)
+    if !res.ok {
+        throw new Error(`vira: nie znaleziono pakietu '${pkgName}' w JSR (HTTP ${res.status})`)
+    }
+    let data = await res.json()
+    return Object.keys(data.versions)
+}
+
+// range: zakres semver z vira.yml (np. "^1.3.0"), albo "" / "latest" / "*"
+// żeby wziąć najnowszą dostępną wersję.
+pub async fn resolvePackage(pkgName: string, registry: string, range: string) -> ResolvedPackage {
+    if registry == "vira" {
+        return await resolveViraPackage(pkgName)
+    }
+    if registry == "jsr" {
+        let versions = await fetchVersionsJsr(pkgName)
+        let version = maxSatisfying(versions, range)
+        if version == null {
+            throw new Error(`vira: żadna wersja '${pkgName}' na JSR nie spełnia zakresu '${range}'`)
+        }
+        return ResolvedPackage {
+            name: pkgName,
+            version: version,
+            resolved: `https://npm.jsr.io/${pkgName}/-/${pkgName}-${version}.tgz`,
+            registry: "jsr",
+        }
+    }
+    let versions = await fetchVersionsNpm(pkgName)
+    let version = maxSatisfying(versions, range)
+    if version == null {
+        throw new Error(`vira: żadna wersja '${pkgName}' na npm nie spełnia zakresu '${range}'`)
+    }
+    return ResolvedPackage {
+        name: pkgName,
+        version: version,
+        resolved: `https://registry.npmjs.org/${pkgName}/-/${pkgName}-${version}.tgz`,
+        registry: "npm",
+    }
+}
+
+pub fn detectRegistry(spec: string) -> string {
+    if spec.startsWith("jsr:") {
+        return "jsr"
+    }
+    if spec.startsWith("vira:") {
+        return "vira"
+    }
+    return "npm"
+}
+
+pub fn stripRegistryPrefix(spec: string) -> string {
+    if spec.startsWith("jsr:") {
+        return spec.slice(4)
+    }
+    if spec.startsWith("vira:") {
+        return spec.slice(5)
+    }
+    return spec
+}
+
+pub async fn searchNpm(query: string) -> any {
+    let url = `https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(query)}&size=10`
+    let res = await fetch(url)
+    let data = await res.json()
+    return data.objects
+}
+
+// UWAGA: nieprzetestowane w tej piaskownicy (brak dostępu do api.jsr.io) -
+// kształt zapytania zgodny z publicznym API JSR (https://api.jsr.io), ale
+// zweryfikuj przed poleganiem na tym w CI.
+pub async fn searchJsr(query: string) -> any {
+    let url = `https://api.jsr.io/packages?query=${encodeURIComponent(query)}&limit=10`
+    let res = await fetch(url)
+    let data = await res.json()
+    return data.items
+}
+
+// ---------------------------------------------------------------------
+// vira.io - repozytorium społecznościowe. Cały indeks to jeden plik JSON
+// utrzymywany na GitHubie (https://github.com/vira-io/repository), gdzie
+// każda biblioteka to osobny obiekt { "nazwa": "repo.git" }. Nie ma tam
+// (jeszcze) API do wersjonowania czy wyszukiwania - to zwykły plik
+// statyczny, więc "rozwiązanie" pakietu z vira.io oznacza dziś: znajdź
+// wpis po nazwie, zwróć URL repozytorium git. Prawdziwe wersjonowanie
+// (tagi git jako wersje semver) to kolejny krok - dziś traktujemy cały
+// git remote jako "wersję" o nazwie "git" (najnowszy stan gałęzi domyślnej).
+//
+// TO ZOSTAŁO REALNIE PRZETESTOWANE w sesji, w której powstało - plik pod
+// tym adresem istnieje i ma dokładnie ten kształt.
+const VIRA_INDEX_URL = "https://raw.githubusercontent.com/vira-io/repository/main/repo-list.json"
+
+async fn fetchViraIndex() -> any {
+    let res = await fetch(VIRA_INDEX_URL)
+    if !res.ok {
+        throw new Error(`vira: nie można pobrać indeksu vira.io (HTTP ${res.status})`)
+    }
+    let data = await res.json()
+    return data.libraries
+}
+
+// Każdy wpis w repo-list.json to obiekt z DOKŁADNIE jednym kluczem (nazwa
+// biblioteki) - stąd Object.keys(entry)[0] zamiast zwykłego pola "name".
+async fn findViraPackage(name: string) -> any {
+    let libraries = await fetchViraIndex()
+    for entry in libraries {
+        let entryName = Object.keys(entry)[0]
+        if entryName == name {
+            return { name: entryName, repo: entry[entryName] }
+        }
+    }
+    return null
+}
+
+async fn resolveViraPackage(pkgName: string) -> ResolvedPackage {
+    let found = await findViraPackage(pkgName)
+    if found == null {
+        throw new Error(`vira: nie znaleziono pakietu '${pkgName}' w rejestrze vira.io`)
+    }
+    return ResolvedPackage {
+        name: pkgName,
+        version: "git",
+        resolved: found.repo,
+        registry: "vira",
+    }
+}
