@@ -1,0 +1,35 @@
+// pattern_matching.hyper - enum z danymi (ADT) + match
+
+enum HttpResponse {
+  Ok(body: string),
+  NotFound(path: string),
+  ServerError(code: i32, message: string),
+}
+
+fn describeResponse(response: HttpResponse) -> string {
+  return match response {
+    Ok(body) => `200: ${body}`,
+    NotFound(path) => `404: nie znaleziono ${path}`,
+    ServerError(code, message) => `${code}: ${message}`,
+  }
+}
+
+fn main() {
+  let responses = [
+    HttpResponse.Ok("witaj świecie"),
+    HttpResponse.NotFound("/nieistniejacy"),
+    HttpResponse.ServerError(500, "coś poszło nie tak"),
+  ]
+
+  for response in responses {
+    console.log(describeResponse(response))
+  }
+
+  // Odkomentuj poniższe (i usuń jedno ramię z powyższego match), żeby
+  // zobaczyć ostrzeżenie checkera o niewyczerpującym dopasowaniu:
+  //   match response { Ok(body) => body }
+  // -> warning: match nad `HttpResponse` nie jest wyczerpujący - brakuje
+  //    wariantów: NotFound, ServerError
+}
+
+main()
