@@ -17,6 +17,8 @@ UninstPage instfiles
 Section "Install"
   SetOutPath "$INSTDIR"
   File "dist\hyperc-windows-amd64\hyperc.exe"
+  File "dist\hyperc-windows-amd64\hyperfmt.exe"
+  File "dist\hyperc-windows-amd64\hyperls.exe"
   File "LICENSE"
   File "README.adoc"
 
@@ -41,6 +43,8 @@ Section "Uninstall"
   EnVar::DeleteValue "PATH" "$INSTDIR"
 
   Delete "$INSTDIR\${EXE_NAME}"
+  Delete "$INSTDIR\hyperfmt.exe"
+  Delete "$INSTDIR\hyperls.exe"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\README.adoc"
   Delete "$INSTDIR\uninstall.exe"
