@@ -1,0 +1,3 @@
+pub fn flatten(items: any) -> any {
+    return items.flat(Infinity)
+}
