@@ -31,11 +31,12 @@ jobs:
         run: cd src && go vet ./...
       - name: go test
         run: cd src && go test ./... || true # brak jeszcze pakietu testowego w v0.1
-      - name: Smoke test - transpilacja i uruchomienie przykładu
+      - name: Smoke test - kompilacja i uruchomienie przykładu
         run: |
           cd src
-          go build -o /tmp/hyperc .
-          /tmp/hyperc run ../examples/hello.hyper
+          go build -o /tmp/hyperc ./hyperc
+          /tmp/hyperc ../examples/hello.hyper -o /tmp/hello.js
+          node /tmp/hello.js
 
   # ---------------------------------------------------------------------
   # 2. Cross-kompilacja binarek Go (ELF Linux, macOS, Windows, OpenBSD)
@@ -84,7 +85,9 @@ jobs:
           cd src
           mkdir -p ../dist/${{ matrix.name }}
           go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
-            -o ../dist/${{ matrix.name }}/hyperc${{ matrix.ext }} .
+            -o ../dist/${{ matrix.name }}/hyperc${{ matrix.ext }} ./hyperc
+          go build -trimpath -ldflags "-s -w" -o ../dist/${{ matrix.name }}/hyperfmt${{ matrix.ext }} ./hyperfmt
+          go build -trimpath -ldflags "-s -w" -o ../dist/${{ matrix.name }}/hyperls${{ matrix.ext }} ./hyperls
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
@@ -187,6 +190,59 @@ jobs:
   # 6. OpenBSD - tarball binarki cross-kompilowanej + install.sh
   #    (patrz uwaga uczciwości w packaging/openbsd/install.sh)
   # ---------------------------------------------------------------------
+  # ---------------------------------------------------------------------
+  # 6b/7b. PRAWDZIWE natywne pakiety (.eopkg dla Solusa, pkg_add .tgz dla
+  # OpenBSD) - wymagają odpowiednio solbuild (Solus) i pkg_create+signify
+  # (OpenBSD), których GitHub NIE udostępnia jako hostowanych runnerów.
+  #
+  # Te joby są WYŁĄCZONE domyślnie (warunek `if: false`) i uruchomią się
+  # tylko jeśli w repo zarejestrowany zostanie self-hosted runner z
+  # odpowiednią etykietą - czyli własna infrastruktura: albo fizyczna/VM
+  # maszyna z Solusem/OpenBSD z zainstalowanym `actions-runner`, albo
+  # runner efemeryczny odpalany np. przez cirrus-runners (OpenBSD ma
+  # oficjalne obrazy CI w Cirrus CI, co jest prostszą alternatywą niż
+  # własny self-hosted runner - patrz komentarz niżej).
+  #
+  # Żeby włączyć: zmień `if: false` na `if: true` PO zarejestrowaniu
+  # runnera, i usuń komentarz z `runs-on`.
+  package-solus-native:
+    needs: test
+    if: false # włącz po zarejestrowaniu self-hosted runnera z etykietą 'solus'
+    runs-on: [self-hosted, solus]
+    steps:
+      - uses: actions/checkout@v4
+      - name: solbuild (buduje prawdziwy .eopkg w chroot Solusa)
+        run: |
+          sudo solbuild init -u
+          sudo solbuild build packaging/solus/package.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-solus-eopkg
+          path: "*.eopkg"
+
+  package-openbsd-native:
+    needs: test
+    if: false # włącz po zarejestrowaniu self-hosted runnera OpenBSD (patrz uwagi niżej)
+    runs-on: [self-hosted, openbsd]
+    steps:
+      - uses: actions/checkout@v4
+      - name: pkg_create (buduje prawdziwy pakiet .tgz do pkg_add)
+        run: |
+          cd src && go build -o ../hyperc ./hyperc
+          cd ..
+          mkdir -p pkg/usr/local/bin
+          cp hyperc pkg/usr/local/bin/
+          pkg_create -f packaging/openbsd/PLIST -B pkg -p /usr/local hyperc-${VERSION#v}.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hyperc-openbsd-native-pkg
+          path: "*.tgz"
+      # Alternatywa bez własnego self-hosted runnera: OpenBSD ma oficjalne
+      # obrazy w Cirrus CI (cirrus-ci.org), które można spiąć z GitHub przez
+      # cirrus.yml zamiast Actions - prościej niż utrzymywać własną maszynę
+      # OpenBSD jako runnera 24/7. To rekomendowana ścieżka, jeśli realne
+      # .tgz dla OpenBSD staną się priorytetem.
+
   package-openbsd:
     needs: build-binaries
     runs-on: ubuntu-latest
