@@ -1,0 +1,3 @@
+pub fn filterArray(items: any, pred: any) -> any {
+    return items.filter(pred)
+}
