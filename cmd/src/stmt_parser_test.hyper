@@ -1,0 +1,75 @@
+import { parseProgram, stmtToString } from "./stmt_parser.hyper"
+
+fn check(source: string, expected: string) {
+    let program = parseProgram(source)
+    let mut rendered = []
+    for stmt in program {
+        rendered.push(stmtToString(stmt))
+    }
+    let joined = rendered.join(" | ")
+    let ok = joined == expected
+
+    console.log(`${ok ? "OK" : "BŁĄD"}  ${source}`)
+    console.log(`  drzewo: ${joined}`)
+    if !ok {
+        console.log(`  oczekiwano: ${expected}`)
+    }
+}
+
+fn main() {
+    console.log("--- regresja z v0.1/v0.2 ---")
+    check("2 + 3 * 4", "(2 + (3 * 4))")
+    check("(2 + 3) * 4", "((2 + 3) * 4)")
+    check("let x = 1 + 2 * 3", "let x = (1 + (2 * 3))")
+    check("let mut total = 0", "let mut total = 0")
+    check("fn add(a, b) { return a + b }", "fn add(a, b) { return (a + b) }")
+    check("while running { count += 1 }", "while running { (count += 1) }")
+    check("struct Point { x: f64, y: f64 }", "struct Point { x: f64, y: f64 }")
+    check("let neg = -x", "let neg = (-x)")
+    check("let notFlag = !ready", "let notFlag = (!ready)")
+    check("let empty = null", "let empty = null")
+    check("let p = Circle { radius: 2.0 }", "let p = Circle { radius: 2.0 }")
+    check("let area = shapes[0].radius", "let area = shapes[0].radius")
+    check("let nums = [1, 2, 3]", "let nums = [1, 2, 3]")
+    check("let { x, y } = point", "let { x, y } = point")
+    check("pub fn add(a, b) { return a + b }", "pub fn add(a, b) { return (a + b) }")
+
+    console.log("\n--- v0.3: ObjectLit (gołe wyrażenie) ---")
+    check(
+        "let config = { debug: true, retries: 3 }",
+        "let config = { debug: true, retries: 3 }"
+    )
+
+    console.log("\n--- v0.3: spread w tablicach i wywołaniach ---")
+    check("let combined = [...a, ...b, 3]", "let combined = [...a, ...b, 3]")
+    check("let total = sum(...values)", "let total = sum(...values)")
+
+    console.log("\n--- v0.3: async/await ---")
+    check(
+        "async fn fetchData() { let result = await fetchJson(url) return result }",
+        "async fn fetchData() { let result = await fetchJson(url); return result }"
+    )
+
+    console.log("\n--- v0.3: destrukturyzacja tablicowa w let ---")
+    check("let [a, b] = pair", "let [ a, b ] = pair")
+
+    console.log("\n--- v0.3: typy funkcyjne w adnotacjach (test parsowania - renderowanie nie pokazuje typów) ---")
+    check(
+        "fn apply(f: (i32) -> i32, x: i32) -> i32 { return f(x) }",
+        "fn apply(f, x) { return f(x) }"
+    )
+
+    console.log("\n--- v0.3: declare module ---")
+    check(
+        "declare module \"std/math\" { fn sqrt(x: f64) -> f64 fn pow(base: f64, exp: f64) -> f64 }",
+        "declare module \"std/math\" { fn sqrt(...) -> f64; fn pow(...) -> f64 }"
+    )
+
+    console.log("\n--- v0.3: optional chaining (?.) - osobny węzeł od zwykłego '.' ---")
+    check("let name = user?.profile?.name", "let name = user?.profile?.name")
+
+    console.log("\n--- v0.3: przypisanie prawostronnie łączne ---")
+    check("a = b = c", "(a = (b = c))")
+}
+
+main()
