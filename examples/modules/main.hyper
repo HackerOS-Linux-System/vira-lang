@@ -1,0 +1,12 @@
+// modules/main.hyper - punkt wejścia importujący z geometry.hyper.
+// Uruchom: hyperc examples/modules/main.hyper -o /tmp/out.js && node /tmp/out.js
+
+import { Rectangle, describeRectangle } from "./geometry.hyper"
+
+fn main() {
+  let r = Rectangle { width: 4.0, height: 5.0 }
+  console.log(describeRectangle(r))
+  console.log(`pole bezpośrednio: ${r.area()}`)
+}
+
+main()
